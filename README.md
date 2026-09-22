@@ -19,9 +19,12 @@ happens. What changes is that nothing worth keeping has to survive it.
 | Right after compaction | `SessionStart` (`compact`) | the newest brief for this session is injected as context |
 | New or resumed session | `SessionStart` (`startup`, `resume`) | "N dream(s) awaiting promotion in <store>" |
 
-The engine ladder: any local OpenAI-compatible server first (llama.cpp, vLLM, Ollama), `claude -p`
-on the CLI's own login second, and a mechanical brief built from the last turns when neither
-answers. Every hook exits 0 on any failure; compaction is never blocked on a dead engine.
+The engine ladder: any local OpenAI-compatible server first (llama.cpp, vLLM, Ollama),
+`claude -p --safe-mode` on the CLI's own login second, and a mechanical brief built from the last
+turns when neither answers. Every hook exits 0 on any failure; compaction is never blocked on a
+dead engine, and every engine call is bounded by the remaining budget so a sleep cannot outrun
+the hook's one-hour ceiling. The hooks invoke `python`, so Python 3.10+ has to be on the PATH
+under that name (on Windows, not the Store stub).
 
 ## The dream folder
 

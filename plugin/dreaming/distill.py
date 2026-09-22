@@ -177,9 +177,16 @@ def _shaped(obj, raw, truncated, **extra):
     return out
 
 
-def map_chunk(engine, chunk, chunk_no, total):
+def _call(engine, system, user, *, max_tokens, timeout):
+    """Pass `timeout` only when the caller set one, so fakes without the keyword still work."""
+    if timeout is None:
+        return engine(system, user, max_tokens=max_tokens)
+    return engine(system, user, max_tokens=max_tokens, timeout=timeout)
+
+
+def map_chunk(engine, chunk, chunk_no, total, *, timeout=None):
     user = "Slice %d of %d.\n\n%s\n%s\n%s\n\n%s" % (chunk_no, total, PAYLOAD_OPEN, chunk, PAYLOAD_CLOSE, JSON_REMINDER)
-    res = engine(MAP_SYSTEM, user, max_tokens=4000)
+    res = _call(engine, MAP_SYSTEM, user, max_tokens=4000, timeout=timeout)
     if not res.ok:
         return _empty("engine error: %s" % res.error)
     obj, truncated = _parse_object(res.text)
@@ -221,7 +228,7 @@ def _union(maps, **extra):
     return out
 
 
-def reduce_maps(engine, maps, index_text, *, max_chars=DEFAULT_CHUNK_CHARS, _depth=0):
+def reduce_maps(engine, maps, index_text, *, max_chars=DEFAULT_CHUNK_CHARS, timeout=None, _depth=0):
     """One reduce call; halves when the payload would not fit, and GIVES UP to the union of the
     maps when halving stops shrinking it. Review finding 2026-09-22: two max-size reduce replies
     plus a large index can exceed the window after every merge, and the naive recursion made
@@ -233,19 +240,19 @@ def reduce_maps(engine, maps, index_text, *, max_chars=DEFAULT_CHUNK_CHARS, _dep
         if len(maps) <= 1 or _depth >= 3:
             return _union(maps)
         mid = len(maps) // 2
-        left = reduce_maps(engine, maps[:mid], index_text, max_chars=max_chars, _depth=_depth + 1)
-        right = reduce_maps(engine, maps[mid:], index_text, max_chars=max_chars, _depth=_depth + 1)
+        left = reduce_maps(engine, maps[:mid], index_text, max_chars=max_chars, timeout=timeout, _depth=_depth + 1)
+        right = reduce_maps(engine, maps[mid:], index_text, max_chars=max_chars, timeout=timeout, _depth=_depth + 1)
         merged_payload = _maps_payload([left, right])
         if len(merged_payload) >= len(payload) or len(merged_payload) + len(index_text) > max_chars:
             return _union([left, right], halved=1 + left.get("halved", 0) + right.get("halved", 0))
-        merged = reduce_maps(engine, [left, right], index_text, max_chars=max_chars, _depth=_depth + 1)
+        merged = reduce_maps(engine, [left, right], index_text, max_chars=max_chars, timeout=timeout, _depth=_depth + 1)
         merged["halved"] = 1 + left.get("halved", 0) + right.get("halved", 0) + merged.get("halved", 0)
         return merged
     user = "%s\nMEMORY INDEX:\n%s\n\nPER-SLICE NOTES (JSON):\n%s\n%s\n\n%s" % (
         PAYLOAD_OPEN, index_text, payload, PAYLOAD_CLOSE, JSON_REMINDER)
     # 4000, not more: ai_client.chat_completion clamps to 4096 anyway, and the prompt's own size
     # limits are what keep the reply under it.
-    res = engine(REDUCE_SYSTEM, user, max_tokens=4000)
+    res = _call(engine, REDUCE_SYSTEM, user, max_tokens=4000, timeout=timeout)
     if not res.ok:
         return _empty("engine error: %s" % res.error, halved=0, gave_up=False)
     obj, truncated = _parse_object(res.text)

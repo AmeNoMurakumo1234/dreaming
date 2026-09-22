@@ -91,7 +91,7 @@ class DistillTests(unittest.TestCase):
     def test_reduce_halves_when_input_exceeds_window(self):
         calls = []
 
-        def counting(system, user, *, max_tokens=4000):
+        def counting(system, user, *, max_tokens=4000, timeout=None):
             calls.append(len(user))
             return EngineResult(True, REDUCE_JSON, "fake", None)
 
@@ -111,7 +111,7 @@ class DistillTests(unittest.TestCase):
         # where the transcript stops and the instruction resumes.
         seen = {}
 
-        def capture(system, user, *, max_tokens=4000):
+        def capture(system, user, *, max_tokens=4000, timeout=None):
             seen["user"] = user
             return EngineResult(True, MAP_JSON, "fake", None)
 
@@ -162,7 +162,7 @@ class DistillTests(unittest.TestCase):
         fat_reply = json.dumps(fat)
         calls = []
 
-        def engine(system, user, *, max_tokens=4000):
+        def engine(system, user, *, max_tokens=4000, timeout=None):
             calls.append(len(user))
             return EngineResult(True, fat_reply, "fake", None)
 
@@ -171,12 +171,42 @@ class DistillTests(unittest.TestCase):
         self.assertLessEqual(len(calls), 12, len(calls))
         self.assertFalse(out["parse_failed"])
         self.assertGreaterEqual(len(out["lessons"]), 1)
-        self.assertIn(out.get("gave_up"), (True, False))
+        self.assertFalse(out["gave_up"])   # the bounded index made it fit: one call, no halving
+
+    def test_reduce_gives_up_to_the_union_when_halving_cannot_shrink(self):
+        full = json.loads(REDUCE_JSON)
+        fat = dict(full, lessons=[dict(full["lessons"][0], why="w" * 290, how_to_apply="h" * 290,
+                                       title="lesson %d" % i) for i in range(12)])
+        fat_reply = json.dumps(fat)
+        calls = []
+
+        def engine(system, user, *, max_tokens=4000, timeout=None):
+            calls.append(len(user))
+            return EngineResult(True, fat_reply, "fake", None)
+
+        maps = [dict(sd.map_chunk(_engine_returning(MAP_JSON), "c", i, 8),
+                     lessons=[{"title": "t%d-%d" % (i, j), "why": "y" * 900, "how_to_apply": "h", "provenance": [],
+                               "relation": "new", "extends": None} for j in range(6)]) for i in range(1, 9)]
+        out = sd.reduce_maps(engine, maps, "", max_chars=9000)
+        self.assertTrue(out["gave_up"])
+        self.assertLessEqual(len(calls), 12, len(calls))
+        self.assertGreaterEqual(len(out["lessons"]), 1)
+
+    def test_engine_calls_carry_the_timeout_they_are_given(self):
+        seen = []
+
+        def engine(system, user, *, max_tokens=4000, timeout=None):
+            seen.append(timeout)
+            return EngineResult(True, MAP_JSON if system is sd.MAP_SYSTEM else REDUCE_JSON, "fake", None)
+
+        m = sd.map_chunk(engine, "c", 1, 1, timeout=123)
+        sd.reduce_maps(engine, [m], INDEX_TEXT, timeout=45)
+        self.assertEqual(seen, [123, 45])
 
     def test_reduce_bounds_the_index_it_sends(self):
         seen = {}
 
-        def capture(system, user, *, max_tokens=4000):
+        def capture(system, user, *, max_tokens=4000, timeout=None):
             seen["user"] = user
             return EngineResult(True, REDUCE_JSON, "fake", None)
 

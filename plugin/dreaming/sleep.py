@@ -20,10 +20,12 @@ import traceback
 from . import distill as sd, extract as sx
 
 DREAMS_DIRNAME = "dreams"
-DEFAULT_BUDGET_SECONDS = 3000
+DEFAULT_BUDGET_SECONDS = 2400   # plus one 900 s call stays under the hook's 3600 s ceiling
 DEFAULT_CHUNK_CHARS = sd.DEFAULT_CHUNK_CHARS
 DEFAULT_CAP_CHARS = 400_000
 DREAM_STALE_DAYS = 14
+# The smallest engine call worth starting; below this remaining budget a stage is skipped.
+MIN_CALL_SECONDS = 30
 
 
 def dream_folder_name(session_id, now):
@@ -98,7 +100,7 @@ def _write(path, text):
 def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engine_name="mechanical",
               include_thinking=False, budget_seconds=DEFAULT_BUDGET_SECONDS, index_text="",
               now=None, clock=time.monotonic, chunk_chars=DEFAULT_CHUNK_CHARS, cap_chars=DEFAULT_CAP_CHARS,
-              result_head=400):
+              result_head=400, min_call_seconds=MIN_CALL_SECONDS):
     now = now or _dt.datetime.now()
     folder = _fresh_folder(out_root, session_id, now)
     log = _Log(os.path.join(folder, "sleep.log"))
@@ -137,10 +139,11 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
             chunks = sx.chunk_text(day, max_chars=chunk_chars)
             maps = []
             for i, chunk in enumerate(chunks, 1):
-                if clock() - started > budget_seconds:
+                remaining = budget_seconds - (clock() - started)
+                if remaining < min_call_seconds:
                     log.degrade("budget %ds exhausted after %d of %d chunks" % (budget_seconds, len(maps), len(chunks)))
                     break
-                m = sd.map_chunk(engine, chunk, i, len(chunks))
+                m = sd.map_chunk(engine, chunk, i, len(chunks), timeout=int(remaining))
                 _write(os.path.join(folder, "map", "%d.json" % i), json.dumps(m, ensure_ascii=True, indent=1))
                 if m["parse_failed"]:
                     if str(m.get("raw", "")).startswith("engine error:"):
@@ -152,13 +155,14 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
                 maps.append(m)
                 log.write("map | chunk %d/%d | %d chars | lessons %d" % (i, len(chunks), len(chunk), len(m["lessons"])))
             # 3. reduce
-            if maps and clock() - started > budget_seconds:
+            remaining = budget_seconds - (clock() - started)
+            if maps and remaining < min_call_seconds:
                 log.degrade("budget %ds exhausted before reduce; using the union of the map passes" % budget_seconds)
                 r = sd._union(maps)
                 _write(os.path.join(folder, "reduce.json"), json.dumps(r, ensure_ascii=True, indent=1))
                 lessons, tensions, state = r["lessons"], r["tensions"], r["state"]
             elif maps:
-                r = sd.reduce_maps(engine, maps, index_text, max_chars=chunk_chars)
+                r = sd.reduce_maps(engine, maps, index_text, max_chars=chunk_chars, timeout=int(remaining))
                 _write(os.path.join(folder, "reduce.json"), json.dumps(r, ensure_ascii=True, indent=1))
                 last_map_state = next((m["state"] for m in reversed(maps) if m["state"].get("current_task")), None)
                 if r.get("gave_up"):

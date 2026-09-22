@@ -2,7 +2,8 @@
 
 This repo is both a Claude Code marketplace and the `dreaming` plugin it hosts. Source of truth:
 `https://github.com/AmeNoMurakumo1234/dreaming`. Python 3.10+ on your PATH as `python` is the
-only requirement; the plugin is stdlib only.
+only requirement; the plugin is stdlib only. On Windows make sure `python` resolves to a real
+interpreter and not the Microsoft Store stub (`python --version` should print a version).
 
 ## Quick start
 

@@ -8,5 +8,5 @@ try:
     from dreaming import cli
     cli.main(["reseed"])
 except BaseException as exc:  # noqa: BLE001 - a hook must not die
-    print("dreaming: reseed skipped: %s" % exc)
+    print("dreaming: reseed skipped: %s" % exc, file=sys.stderr)
 sys.exit(0)

@@ -89,12 +89,12 @@ where `<project>` is the hook's `cwd` (or the git toplevel above it), then envir
   "store_root": "~/.dreaming/stores",
   "agent": "auto",
   "agents": {},
-  "identity_order": ["env", "transcript", "git", "default"],
+  "identity_order": ["env", "config", "transcript", "git", "default"],
   "engines": ["openai_compatible", "claude", "mechanical"],
   "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "", "api_key_env": "DREAMING_API_KEY",
                         "model": "local", "timeout": 900},
   "claude": {"model": "haiku", "timeout": 900},
-  "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 3000,
+  "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 2400,
   "result_head": 400, "include_thinking": false,
   "index_file": "MEMORY.md", "stale_days": 14
 }

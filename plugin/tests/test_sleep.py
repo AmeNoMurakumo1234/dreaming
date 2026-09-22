@@ -57,7 +57,7 @@ class SleepRunTests(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _engine(self, map_text=MAP_JSON, reduce_text=REDUCE_JSON):
-        def fn(system, user, *, max_tokens=4000):
+        def fn(system, user, *, max_tokens=4000, timeout=None):
             return EngineResult(True, reduce_text if system is sd.REDUCE_SYSTEM else map_text, "fake", None)
         return fn
 
@@ -107,7 +107,7 @@ class SleepRunTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(out["folder"], "day.md")))
 
     def test_engine_exception_mid_reduce_still_leaves_day_and_log(self):
-        def exploding(system, user, *, max_tokens=4000):
+        def exploding(system, user, *, max_tokens=4000, timeout=None):
             if system is sd.REDUCE_SYSTEM:
                 raise RuntimeError("kaboom")
             return EngineResult(True, MAP_JSON, "fake", None)
@@ -139,7 +139,7 @@ class SleepRunTests(unittest.TestCase):
         with open(self.transcript, "w", encoding="utf-8") as fh:
             for i in range(40):
                 fh.write(json.dumps(_rec("user", "us-0001-%02d" % i, message={"role": "user", "content": "q" * 500})) + "\n")
-        out = self._run(budget_seconds=5, clock=lambda: next(ticks), chunk_chars=2000)
+        out = self._run(budget_seconds=5, clock=lambda: next(ticks), chunk_chars=2000, min_call_seconds=1)
         self.assertTrue(any("budget" in d for d in out["degraded"]))
         self.assertTrue(os.path.isfile(os.path.join(out["folder"], "reduce.json")))
         self.assertEqual(len(os.listdir(os.path.join(out["folder"], "map"))), 1)
@@ -148,17 +148,52 @@ class SleepRunTests(unittest.TestCase):
         ticks = itertools.chain([0, 0], itertools.repeat(10_000))
         calls = []
 
-        def fn(system, user, *, max_tokens=4000):
+        def fn(system, user, *, max_tokens=4000, timeout=None):
             calls.append(system is sd.REDUCE_SYSTEM)
             return EngineResult(True, MAP_JSON, "fake", None)
 
-        out = self._run(engine=fn, budget_seconds=5, clock=lambda: next(ticks), chunk_chars=2000)
+        out = self._run(engine=fn, budget_seconds=5, clock=lambda: next(ticks), chunk_chars=2000, min_call_seconds=1)
         self.assertFalse(any(calls), "reduce must not run once the budget is gone")
         self.assertTrue(any("budget" in d and "reduce" in d for d in out["degraded"]), out["degraded"])
         self.assertGreaterEqual(out["lessons"], 1)
 
+    def test_engine_calls_get_the_remaining_budget_as_their_timeout(self):
+        # Review finding: the map loop checked the budget only between 900 s calls and the reduce
+        # had no clock, so the hook could run past its 3600 s ceiling. Each call now gets the
+        # remaining budget as its timeout, and the reduce is skipped when too little remains.
+        # clock reads: started (0), the one map chunk's check (100), the reduce check (300)
+        ticks = itertools.chain([0, 100, 300], itertools.repeat(300))
+        seen = []
+
+        def fn(system, user, *, max_tokens=4000, timeout=None):
+            seen.append((system is sd.REDUCE_SYSTEM, timeout))
+            return EngineResult(True, REDUCE_JSON if system is sd.REDUCE_SYSTEM else MAP_JSON, "fake", None)
+
+        out = self._run(engine=fn, budget_seconds=500, clock=lambda: next(ticks))
+        self.assertEqual(seen[0][1], 400)         # map call: 500 - 100 elapsed
+        self.assertEqual(seen[-1], (True, 200))   # reduce call: 500 - 300 elapsed
+        self.assertEqual(out["degraded"], [])
+
+    def test_reduce_is_skipped_when_less_than_one_minimal_call_remains(self):
+        ticks = itertools.chain([0, 0, 480], itertools.repeat(480))
+        calls = []
+
+        def fn(system, user, *, max_tokens=4000, timeout=None):
+            calls.append(system is sd.REDUCE_SYSTEM)
+            return EngineResult(True, MAP_JSON, "fake", None)
+
+        out = self._run(engine=fn, budget_seconds=500, clock=lambda: next(ticks))
+        self.assertEqual(calls, [False])
+        self.assertTrue(any("reduce" in d and "budget" in d for d in out["degraded"]), out["degraded"])
+
+    def test_dry_run_dream_creates_no_store(self):
+        rc, out = self._main("dream", "--dry-run", "--engine", "mechanical", "--transcript", self.transcript)
+        self.assertEqual(rc, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.memory, "dreams")))
+        self.assertIn("dreaming into scratch", out)
+
     def test_a_brief_exists_before_the_first_engine_call(self):
-        def killer(system, user, *, max_tokens=4000):
+        def killer(system, user, *, max_tokens=4000, timeout=None):
             raise SystemExit(1)
 
         with self.assertRaises(SystemExit):
@@ -170,7 +205,7 @@ class SleepRunTests(unittest.TestCase):
         cut = MAP_JSON[:-40]
         seen = {"n": 0}
 
-        def fn(system, user, *, max_tokens=4000):
+        def fn(system, user, *, max_tokens=4000, timeout=None):
             if system is sd.REDUCE_SYSTEM:
                 return EngineResult(True, REDUCE_JSON, "fake", None)
             seen["n"] += 1

@@ -16,4 +16,12 @@ repo-bound seams turned into configuration:
   first engine call, seconds-plus-suffix folder names, newest watermark, truncation and engine
   errors named in `sleep.log`.
 - Two skills: `dreaming` (the contract and configuration) and `dreaming-promote` (the wake step).
-- 73 tests, stdlib only, every subprocess windowless.
+- After a fresh whole-branch review: hook JSON read as UTF-8 regardless of the locale codec (a
+  non-ASCII path used to break the hook and defeat `enabled: false` on Windows); stores created
+  only by the sleep that writes them; agent names validated as path components; `claude -p
+  --safe-mode` instead of a machine-specific plugin list; every engine call bounded by the
+  remaining budget (default 2400 s) so a sleep cannot cross the hook ceiling; `config` is its own
+  identity step; a missing `/health` no longer hides an Ollama-style server.
+- 84 tests, stdlib only, every subprocess windowless.
+- Measured on a 1,782-record transcript through a local Qwen3.8-27B (llama.cpp): 6 slices of 60k chars,
+  194 s, 9 lessons, 1 tension, no degraded stage, resume brief correct.

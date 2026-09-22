@@ -85,6 +85,8 @@ def available(cfg_oc, *, urlopen=urllib.request.urlopen, env=None):
     try:
         with urlopen(urllib.request.Request(base + "/health"), timeout=6) as resp:
             resp.read()
+    except urllib.error.HTTPError:
+        pass        # an HTTP answer of any kind proves the server is up (Ollama has no /health)
     except Exception:
         return False
     probe = dict(cfg_oc, timeout=min(30, int(cfg_oc.get("timeout") or 30)))

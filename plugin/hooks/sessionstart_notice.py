@@ -8,5 +8,5 @@ try:
     from dreaming import cli
     cli.main(["notice"])
 except BaseException as exc:  # noqa: BLE001 - a hook must not die
-    print("dreaming: notice skipped: %s" % exc)
+    print("dreaming: notice skipped: %s" % exc, file=sys.stderr)
 sys.exit(0)

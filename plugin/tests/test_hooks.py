@@ -34,13 +34,54 @@ class HookScriptTests(unittest.TestCase):
                               text=True, encoding="utf-8", errors="replace", timeout=120, env=env,
                               cwd=self.tmp, creationflags=_NO_WINDOW)
 
-    def test_hook_scripts_exit_zero_on_garbage_stdin(self):
+    def _mechanical_config(self):
+        os.makedirs(os.path.join(self.home, ".dreaming"), exist_ok=True)
+        with open(os.path.join(self.home, ".dreaming", "config.json"), "w", encoding="utf-8") as fh:
+            json.dump({"engines": ["mechanical"]}, fh)
+
+    def test_hook_scripts_exit_zero_on_garbage_stdin_and_create_no_store(self):
+        self._mechanical_config()
         for script in SCRIPTS:
             for stdin in ("", "{not json", json.dumps({"session_id": "s"}), "[1,2,3]"):
                 done = self._run(script, stdin)
                 self.assertEqual(done.returncode, 0, (script, stdin, done.stdout, done.stderr))
-                self.assertEqual(done.stderr.strip(), "", (script, stdin, done.stderr))
-        self.assertFalse(os.path.exists(os.path.join(self.tmp, "stores", "default", "dreams")))
+        # Review finding: the old assertion looked for stores/default/dreams, which no code path
+        # creates on garbage; the store DIRECTORY was being created by every hook call.
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "stores")), os.listdir(self.tmp))
+
+    def test_hook_reads_utf8_stdin_whatever_the_locale_codec_is(self):
+        # Review finding (Critical): on Windows a piped stdin decodes as cp1252, so a non-ASCII
+        # path in the hook JSON was mangled or dropped - and with it the cwd that finds the
+        # project's enabled:false. The child runs with the UTF-8 env overrides removed.
+        self._mechanical_config()
+        project = os.path.join(self.tmp, "Müller-中文")
+        os.makedirs(os.path.join(project, ".git"))
+        transcript = os.path.join(project, "s.jsonl")
+        with open(transcript, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "user", "uuid": "u-01", "timestamp": "t",
+                                 "message": {"role": "user", "content": "hello from a non-ascii path"}}) + "\n")
+        hook = json.dumps({"session_id": "sess-utf8", "transcript_path": transcript, "cwd": project,
+                           "scratchpad_dir": os.path.join(self.tmp, "scratch")}, ensure_ascii=False)
+        env = dict(os.environ, DREAMING_STORE_ROOT=os.path.join(self.tmp, "stores"), HOME=self.home,
+                   USERPROFILE=self.home, DREAMING_AGENT="Joule")
+        for name in ("PYTHONIOENCODING", "PYTHONUTF8", "DREAMING_DISABLED"):
+            env.pop(name, None)
+        done = subprocess.run([sys.executable, os.path.join(HOOKS, "precompact_sleep.py")], input=hook.encode("utf-8"),
+                              capture_output=True, timeout=120, env=env, cwd=self.tmp, creationflags=_NO_WINDOW)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        out = done.stdout.decode("utf-8", "replace")
+        self.assertNotIn("sleep failed", out)
+        store = os.path.join(self.tmp, "stores", "Joule", "dreams")
+        self.assertTrue(os.path.isdir(store), out)
+        self.assertEqual(len(os.listdir(store)), 1)
+        # and enabled:false in that same non-ASCII project is honoured
+        with open(os.path.join(project, ".dreaming.json"), "w", encoding="utf-8") as fh:
+            json.dump({"enabled": False}, fh)
+        done = subprocess.run([sys.executable, os.path.join(HOOKS, "precompact_sleep.py")], input=hook.encode("utf-8"),
+                              capture_output=True, timeout=120, env=env, cwd=self.tmp, creationflags=_NO_WINDOW)
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual(done.stdout.decode("utf-8", "replace").strip(), "")
+        self.assertEqual(len(os.listdir(store)), 1)
 
     def test_disabled_env_makes_every_hook_silent(self):
         for script in SCRIPTS:

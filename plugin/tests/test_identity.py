@@ -53,17 +53,41 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(identity.agent_name(cfg, self.project, None, {}, _git("Git")), ("Git", "git"))
         self.assertEqual(identity.agent_name(cfg, self.project, None, {}, _git("")), ("default", "default"))
 
-    def test_configured_agent_beats_git_but_not_env(self):
+    def test_configured_agent_is_its_own_step_after_env(self):
         cfg = self._cfg({"agent": "Configured"})
-        self.assertEqual(identity.agent_name(cfg, self.project, None, {}, _git("Git"))[0], "Configured")
+        self.assertEqual(identity.agent_name(cfg, self.project, None, {}, _git("Git")), ("Configured", "config"))
         self.assertEqual(identity.agent_name(cfg, self.project, None, {"DREAMING_AGENT": "Env"}, _git("Git"))[0], "Env")
+        # Review finding: a reordered identity_order without "env" used to discard the configured
+        # agent silently. It is now the explicit "config" step, present in the default order.
+        self.assertEqual(config.DEFAULTS["identity_order"], ["env", "config", "transcript", "git", "default"])
+        cfg = self._cfg({"agent": "Configured", "identity_order": ["config", "git", "default"]})
+        self.assertEqual(identity.agent_name(cfg, self.project, None, {"DREAMING_AGENT": "Env"}, _git("Git"))[0], "Configured")
+
+    def test_unsafe_agent_names_fall_back_to_default_with_a_reason(self):
+        # Review finding: the name is a path component taken from data (transcript, git config).
+        cfg = self._cfg()
+        for bad in ("..", "a/b", "a\\b", "con:trol", "star*", "x" * 200):
+            name, source = identity.agent_name(cfg, self.project, None, {"DREAMING_AGENT": bad}, _git(""))
+            self.assertEqual(name, "default", bad)
+            self.assertIn("invalid", source, bad)
+        for blank in ("", "  "):   # absent, not invalid: the next source is consulted
+            self.assertEqual(identity.agent_name(cfg, self.project, None, {"DREAMING_AGENT": blank}, _git("Git")), ("Git", "git"))
+        name, source = identity.agent_name(cfg, self.project, None, {"DREAMING_AGENT": "Ame No Murakumo"}, _git(""))
+        self.assertEqual((name, source), ("Ame No Murakumo", "env"))
+
+    def test_resolve_never_creates_a_store_and_ensure_store_does(self):
+        cfg = self._cfg({"store_root": "stores"})
+        res = identity.resolve(cfg, self.project, transcript=self.transcript, env={}, run=_git(""))
+        self.assertFalse(res.scratch)
+        self.assertFalse(os.path.exists(res.store))
+        identity.ensure_store(res)
+        self.assertTrue(os.path.isdir(res.store))
 
     def test_default_store_is_created_under_store_root(self):
         cfg = self._cfg({"store_root": "stores"})
         res = identity.resolve(cfg, self.project, transcript=self.transcript, env={}, run=_git(""))
         self.assertFalse(res.scratch)
         self.assertEqual(res.store, os.path.normpath(os.path.join(self.project, "stores", "Joule")))
-        self.assertTrue(os.path.isdir(res.store))
 
     def test_unmapped_agent_goes_to_scratch_when_a_map_exists(self):
         os.makedirs(os.path.join(self.project, "team", "worker", "memory"))

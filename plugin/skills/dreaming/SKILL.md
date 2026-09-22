@@ -54,12 +54,12 @@ variables `DREAMING_AGENT`, `DREAMING_DISABLED=1`, `DREAMING_STORE_ROOT`, `DREAM
   "store_root": "~/.dreaming/stores",
   "agent": "auto",
   "agents": {},
-  "identity_order": ["env", "transcript", "git", "default"],
+  "identity_order": ["env", "config", "transcript", "git", "default"],
   "engines": ["openai_compatible", "claude", "mechanical"],
   "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "", "api_key_env": "DREAMING_API_KEY",
                         "model": "local", "timeout": 900},
   "claude": {"model": "haiku", "timeout": 900},
-  "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 3000,
+  "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 2400,
   "result_head": 400, "include_thinking": false,
   "index_file": "MEMORY.md", "stale_days": 14
 }
@@ -71,12 +71,16 @@ prints why: a map is a statement of who lives here.
 
 ## Identity and store rules
 
-1. Agent name: `DREAMING_AGENT`, then a configured `agent` (when not `auto`), then the transcript's
-   own agent-name record, then `git config user.name` in the project, then `default`.
+1. Agent name, in `identity_order`: `env` (`DREAMING_AGENT`), `config` (a configured `agent`
+   that is not `auto`), `transcript` (the session's own agent-name record), `git` (`git config
+   user.name` in the project), `default`. The name becomes a path component, so separators,
+   `..`, reserved characters and absurd lengths fall back to `default` with the source marked
+   `invalid`.
 2. Store: if `agents` is non-empty, the mapped path or scratch; else `store_root/<agent>`.
 3. A mapped store whose directory is missing is NEVER created: scratch plus a printed reason. A
    lost store must not be silently rebuilt by the tool that serves it.
-4. An unmapped default store is created on first use.
+4. An unmapped default store is created by the sleep that first writes into it, and by nothing
+   else: `notice`, `reseed`, `list` and a `--dry-run` dream create no directories.
 5. Scratch is the hook's scratchpad directory when it gives one, else `<tempdir>/dreaming/`.
 6. The index is `<store>/<index_file>` when present, one bounded line per entry, and the reduce
    uses it to mark each lesson `new` or `extends: <slug>`.
@@ -86,12 +90,16 @@ prints why: a map is a statement of who lives here.
 Tried in the configured order; the first that answers wins:
 
 - `openai_compatible` - any `/v1/chat/completions` server (llama.cpp, vLLM, Ollama and the like).
-  Probed with `/health` and then a one-token authenticated completion, so a server that is up but
-  rejects your key is treated as down.
-- `claude` - `claude -p` on the CLI's own login, with every plugin disabled and hooks emptied
-  inside the nested run (this plugin included: a nested run must never sleep). The prompt goes on
-  stdin.
+  Probed with `/health` (a 404 is fine, Ollama has none) and then a one-token authenticated
+  completion, so a server that is up but rejects your key is treated as down.
+- `claude` - `claude -p --safe-mode` on the CLI's own login. Safe mode disables CLAUDE.md, skills,
+  plugins, hooks and MCP inside the nested run on any machine (this plugin included: a nested run
+  must never sleep) and keeps the OAuth login (measured 2026-09-22). The prompt goes on stdin.
 - `mechanical` - no model: the brief is built from the last turns, no lessons. Always available.
+
+Every engine call gets the remaining budget as its timeout, capped by the engine's configured
+timeout, and a stage is skipped when less than thirty seconds remain. With the defaults (budget
+2400 s, engine timeout 900 s) a sleep cannot cross the hook's 3600 s ceiling.
 
 ## Reading sleep.log
 

@@ -18,11 +18,26 @@ import sys
 from . import config as _config, engines as se, identity, sleep as sl
 
 
+def _utf8_streams():
+    """Claude Code speaks UTF-8 on both sides of a hook; a Windows Python fed a pipe defaults to
+    the locale codec (cp1252), which mangled non-ASCII paths in the hook JSON and raised on
+    printing a non-ASCII store path. Reconfigure once, at entry; harmless elsewhere."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def _read_hook_json(args):
     if args.hook_json:
         return json.loads(args.hook_json)
     try:
-        raw = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
+        if sys.stdin is None or sys.stdin.isatty():
+            raw = ""
+        else:
+            buffer = getattr(sys.stdin, "buffer", None)
+            raw = buffer.read().decode("utf-8", "replace") if buffer is not None else sys.stdin.read()
     except Exception:
         raw = ""
     try:
@@ -73,6 +88,7 @@ def cmd_sleep(args):
             print("dreaming: NOT writing to a store (%s)" % res.reason)
         if not transcript or not os.path.isfile(str(transcript)):
             raise FileNotFoundError("transcript not found: %r" % transcript)
+        identity.ensure_store(res)          # the one place a default store is created
         engine, engine_name = _pick_engine(cfg, args.engine)
         index_text = "" if res.scratch else identity.index_text(res.store, cfg)
         out = _run(cfg, args, transcript, session_id, res.store, res.agent, index_text, engine, engine_name)
@@ -112,7 +128,8 @@ def cmd_reseed(args):
                 % (folder, staged))
         print(_hook_context(brief + tail))
     except Exception as exc:
-        print("dreaming: reseed skipped: %s" % exc)
+        # stderr: a SessionStart hook's stdout becomes model context, and a diagnostic is not context
+        print("dreaming: reseed skipped: %s" % exc, file=sys.stderr)
     return 0
 
 
@@ -137,7 +154,7 @@ def cmd_notice(args):
                 d["name"], d["lessons"], d["tensions"], "  STALE" if d["stale"] else ""))
         print(_hook_context("\n".join(lines)))
     except Exception as exc:
-        print("dreaming: notice skipped: %s" % exc)
+        print("dreaming: notice skipped: %s" % exc, file=sys.stderr)
     return 0
 
 
@@ -148,7 +165,7 @@ def cmd_dream(args):
     res = identity.resolve(cfg, cwd, transcript=args.transcript, env=env, hook=hook)
     print("identity:", res.reason)
     to_scratch = bool(args.dry_run or res.scratch)
-    out_root = identity.scratch_root(hook, cfg) if to_scratch else res.store
+    out_root = identity.scratch_root(hook, cfg) if to_scratch else identity.ensure_store(res)
     if args.dry_run:
         print("dreaming into scratch:", out_root)
     engine, engine_name = _pick_engine(cfg, args.engine)
@@ -206,6 +223,7 @@ def main(argv=None):
     l.add_argument("--agent")
     sub.add_parser("config")
     args = parser.parse_args(argv)
+    _utf8_streams()
     if args.cmd == "dream" and not args.transcript:
         parser.error("dream needs --transcript")
     return {"sleep": cmd_sleep, "reseed": cmd_reseed, "notice": cmd_notice, "dream": cmd_dream,

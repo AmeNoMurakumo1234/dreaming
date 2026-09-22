@@ -36,8 +36,7 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(r.ok)
         self.assertEqual(r.text, "hello")
         self.assertEqual(r.engine, "claude")
-        self.assertIn("--settings", seen["cmd"])
-        self.assertIn(se.CLAUDE_MINIMAL_SETTINGS, seen["cmd"])
+        self.assertIn("--safe-mode", seen["cmd"])
         self.assertNotIn("--bare", seen["cmd"])
         self.assertEqual(seen["kw"].get("creationflags"), se._NO_WINDOW)
 
@@ -70,9 +69,42 @@ class EngineTests(unittest.TestCase):
         right = lambda *a, **k: _FakeCompleted(json.dumps({"is_error": False, "result": "OK"}))
         self.assertTrue(se.claude_smoke({}, run=right))
 
-    def test_minimal_settings_disable_this_plugin_too(self):
-        self.assertIn('"dreaming@dreaming":false', se.CLAUDE_MINIMAL_SETTINGS)
-        self.assertIn('"hooks":{}', se.CLAUDE_MINIMAL_SETTINGS)
+    def test_nested_claude_runs_in_safe_mode_not_a_machine_specific_plugin_list(self):
+        # Measured 2026-09-22: `claude -p --safe-mode` keeps the OAuth login and answers exactly OK
+        # with the prompt on stdin; it disables plugins, hooks, CLAUDE.md, MCP and skills for the
+        # nested run on ANY machine, where a --settings list of plugin names only fit this one.
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            return _FakeCompleted(json.dumps({"is_error": False, "result": "OK"}))
+
+        se.claude_complete({"model": "haiku"}, "sys", "usr", run=fake_run)
+        self.assertIn("--safe-mode", seen["cmd"])
+        self.assertNotIn("--settings", seen["cmd"])
+        self.assertNotIn("--bare", seen["cmd"])
+
+    def test_claude_complete_survives_non_dict_json_on_stdout(self):
+        r = se.claude_complete({}, "s", "u", run=lambda *a, **k: _FakeCompleted("[1, 2, 3]"))
+        self.assertFalse(r.ok)
+        self.assertIn("unexpected", r.error)
+
+    def test_engine_callables_accept_a_timeout_and_cap_it_by_config(self):
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["timeout"] = kw.get("timeout")
+            return _FakeCompleted(json.dumps({"is_error": False, "result": "OK"}))
+
+        cfg_claude = {"model": "haiku", "timeout": 900}
+        se.claude_complete(cfg_claude, "s", "u", timeout=120, run=fake_run)
+        self.assertEqual(seen["timeout"], 120)          # the caller's remaining budget wins when smaller
+        se.claude_complete(cfg_claude, "s", "u", timeout=5000, run=fake_run)
+        self.assertEqual(seen["timeout"], 900)          # the configured ceiling wins when smaller
+        se.claude_complete(cfg_claude, "s", "u", run=fake_run)
+        self.assertEqual(seen["timeout"], 900)          # no budget given: the configured value
+        fn, name = se.build_engine(dict(CFG, engines=["claude"]), claude_ok=True)
+        self.assertIn("timeout", fn.__code__.co_varnames + tuple(fn.__kwdefaults__ or {}))
 
     def test_build_engine_follows_config_order_and_falls_through_to_mechanical(self):
         fn, name = se.build_engine(CFG, local_ok=False, claude_ok=False)

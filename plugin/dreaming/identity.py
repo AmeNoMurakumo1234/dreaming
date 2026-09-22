@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """identity.py - who is dreaming, and where the dream goes.
 
-Agent name, in the configured order: DREAMING_AGENT, the transcript's own agent-name record, git
-config user.name in the project, then `default`. A configured `agent` (not "auto") sits between
-env and transcript: it is the user saying who lives here.
+Agent name, in the configured order: DREAMING_AGENT (env), a configured `agent` that is not
+"auto" (config), the transcript's own agent-name record, git config user.name in the project,
+then `default`. The name becomes a path component, so it is validated: separators, `..`,
+reserved characters, blanks and absurd lengths fall back to `default` with the source marked
+`invalid`.
 
 Store: if the effective config carries an `agents` map, the map decides - a mapped name goes to
 its path, an unmapped name goes to scratch with a reason, because a map is a statement of who
@@ -35,27 +37,48 @@ def _git_user_name(cwd, run):
         return ""
 
 
+_RESERVED = set('<>:"|?*/\\') | {chr(i) for i in range(32)}
+MAX_NAME = 64
+
+
+def safe_name(name):
+    """The name as a single path component, or None when it cannot be one."""
+    name = str(name or "").strip()
+    if not name or name in (".", "..") or len(name) > MAX_NAME or any(ch in _RESERVED for ch in name):
+        return None
+    return name
+
+
+def _candidate(name, source):
+    """(name, source) with the validation applied: an unusable name becomes default, marked."""
+    ok = safe_name(name)
+    if ok is None:
+        return "default", "%s:invalid-name" % source
+    return ok, source
+
+
 def agent_name(cfg, cwd, transcript, env, run=subprocess.run):
     env = os.environ if env is None else env
     configured = str(cfg.get("agent") or "auto").strip()
-    for source in cfg.get("identity_order") or ["env", "transcript", "git", "default"]:
+    for source in cfg.get("identity_order") or ["env", "config", "transcript", "git", "default"]:
         if source == "env":
             name = str(env.get("DREAMING_AGENT") or "").strip()
             if name:
-                return name, "env"
+                return _candidate(name, "env")
+        elif source == "config":
             if configured and configured.lower() != "auto":
-                return configured, "config"
+                return _candidate(configured, "config")
         elif source == "transcript" and transcript and os.path.isfile(transcript):
             try:
                 name = extract.transcript_agent_name(transcript) or ""
             except Exception:
                 name = ""
             if name:
-                return name, "transcript"
+                return _candidate(name, "transcript")
         elif source == "git":
             name = _git_user_name(cwd, run)
             if name:
-                return name, "git"
+                return _candidate(name, "git")
         elif source == "default":
             return "default", "default"
     return "default", "default"
@@ -84,8 +107,17 @@ def resolve(cfg, cwd, transcript=None, env=None, run=subprocess.run, hook=None):
                               "mapped store for %s is missing at %s; not creating it; dreaming into scratch" % (name, path))
         return Resolution(name, source, path, False, "%s (%s) -> %s" % (name, source, path))
     store = os.path.normpath(os.path.join(str(cfg.get("store_root") or ""), name))
-    os.makedirs(store, exist_ok=True)
     return Resolution(name, source, store, False, "%s (%s) -> %s" % (name, source, store))
+
+
+def ensure_store(res):
+    """Create the resolved DEFAULT store. Called by the one command that is about to write a
+    dream (sleep, or a non-dry dream), never by notice, reseed, list or a dry run - review
+    finding: every hook call used to create the directory before anything was validated. A
+    mapped store is never created here either: resolve() already sent a missing one to scratch."""
+    if not res.scratch:
+        os.makedirs(res.store, exist_ok=True)
+    return res.store
 
 
 def index_text(store, cfg):

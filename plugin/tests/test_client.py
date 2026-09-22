@@ -100,6 +100,16 @@ class ChatTests(unittest.TestCase):
         self.assertFalse(client.available(dict(OC), urlopen=_urlopen_factory(unauthorized), env={}))
         self.assertFalse(client.available(dict(OC), urlopen=_urlopen_factory(down), env={}))
 
+    def test_available_falls_through_a_missing_health_endpoint(self):
+        # Review finding: Ollama serves no /health (404). An HTTP answer of any kind proves the
+        # server is up; only a transport failure short-circuits. The completion probe decides.
+        def no_health(req):
+            if req.full_url.endswith("/health"):
+                raise urllib.error.HTTPError(req.full_url, 404, "not found", {}, io.BytesIO(b""))
+            return _Resp({"choices": [{"message": {"content": "OK"}}]})
+
+        self.assertTrue(client.available(dict(OC), urlopen=_urlopen_factory(no_health), env={}))
+
 
 class HelperTests(unittest.TestCase):
     GOOD = json.dumps({"state": {"a": 1}, "lessons": [{"title": "t1"}, {"title": "t2"}], "tensions": []})

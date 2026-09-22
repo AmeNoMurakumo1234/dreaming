@@ -15,14 +15,16 @@ DEFAULTS = {
     "store_root": "~/.dreaming/stores",
     "agent": "auto",
     "agents": {},
-    "identity_order": ["env", "transcript", "git", "default"],
+    "identity_order": ["env", "config", "transcript", "git", "default"],
     "engines": ["openai_compatible", "claude", "mechanical"],
     "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "",
                           "api_key_env": "DREAMING_API_KEY", "model": "local", "timeout": 900},
     "claude": {"model": "haiku", "timeout": 900},
     "chunk_chars": 60000,
     "cap_chars": 400000,
-    "budget_seconds": 3000,
+    # 2400 + one 900 s engine call stays under the hook's 3600 s ceiling; every engine call gets
+    # the remaining budget as its timeout, so the ceiling is never crossed by a slow last call.
+    "budget_seconds": 2400,
     "result_head": 400,
     "include_thinking": False,
     "index_file": "MEMORY.md",
@@ -84,8 +86,10 @@ def expand_path(value, base, home=None):
     value = str(value or "")
     if not value:
         return value
-    if value.startswith("~"):
+    if value == "~" or value.startswith(("~/", "~\\")):
         value = (home or os.path.expanduser("~")) + value[1:]
+    elif value.startswith("~"):
+        value = os.path.expanduser(value)      # ~user/x: the OS knows, a home override does not
     if not os.path.isabs(value) and base:
         value = os.path.join(base, value)
     return os.path.normpath(value)
