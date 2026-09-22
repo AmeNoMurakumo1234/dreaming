@@ -130,7 +130,9 @@ def load(project_dir=None, env=None, home=None):
     if touched:
         sources.append("env")
 
-    cfg["store_root"] = expand_path(cfg.get("store_root"), None, home)
+    # A relative store_root is relative to the project root when there is one (a project file
+    # saying "stores" means <project>/stores), else to home.
+    cfg["store_root"] = expand_path(cfg.get("store_root"), root or home, home)
     cfg["agents"] = {k: expand_path(v, root, home) for k, v in (cfg.get("agents") or {}).items()}
     oc = cfg.get("openai_compatible") or {}
     if oc.get("api_key_file"):
