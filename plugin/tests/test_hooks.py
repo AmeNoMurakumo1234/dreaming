@@ -54,7 +54,7 @@ class HookScriptTests(unittest.TestCase):
         # path in the hook JSON was mangled or dropped - and with it the cwd that finds the
         # project's enabled:false. The child runs with the UTF-8 env overrides removed.
         self._mechanical_config()
-        project = os.path.join(self.tmp, "Müller-中文")
+        project = os.path.join(self.tmp, "M\u00fcller-\u4e2d\u6587")
         os.makedirs(os.path.join(project, ".git"))
         transcript = os.path.join(project, "s.jsonl")
         with open(transcript, "w", encoding="utf-8") as fh:
