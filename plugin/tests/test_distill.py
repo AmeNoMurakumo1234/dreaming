@@ -197,14 +197,14 @@ class DistillTests(unittest.TestCase):
 
     def test_renderers_are_ascii_and_carry_provenance(self):
         meta = {"agent": "Joule", "session_id": "sess-0001", "engine": "fake", "when": "2026-09-22 12:00"}
-        lesson = {"title": "A lesson — with a dash", "why": "w", "how_to_apply": "h",
+        lesson = {"title": "A lesson \u2014 with a dash", "why": "w", "how_to_apply": "h",
                   "provenance": ["as-0000-11"], "relation": "extends", "extends": "some-slug"}
         text = sd.render_lesson(lesson, meta)
         self.assertTrue(all(ord(c) < 128 for c in text), text)
         self.assertIn("sess-0001", text)
         self.assertIn("as-0000-11", text)
         self.assertIn("extends: some-slug", text)
-        self.assertEqual(sd.slugify("A lesson — with a dash"), "a-lesson-with-a-dash")
+        self.assertEqual(sd.slugify("A lesson \u2014 with a dash"), "a-lesson-with-a-dash")
         brief = sd.render_brief({"current_task": "t", "exact_state": "e", "next_step": "n",
                                  "uncommitted_decisions": ["d1"], "files_in_context": ["f1"]}, meta)
         for heading in ("## Current Task", "## Exact State", "## Next Step",
