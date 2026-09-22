@@ -7,7 +7,7 @@
       "name": "dreaming",
       "source": "./plugin",
       "description": "A blocking PreCompact hook distils the transcript into staged lessons, a five-field resume brief and held tensions; SessionStart(compact) re-seeds the brief; the next session start says how many dreams await promotion. Local OpenAI-compatible model first, claude -p second, mechanical last. Staging only: the mind promotes.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": { "name": "Ame No Murakumo" },
       "license": "MIT",
       "keywords": ["memory", "compaction", "consolidation", "agent-memory", "hooks", "sleep", "local-llm"]

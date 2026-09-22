@@ -57,31 +57,39 @@ def _candidate(name, source):
     return ok, source
 
 
-def agent_name(cfg, cwd, transcript, env, run=subprocess.run):
+def agent_candidates(cfg, cwd, transcript, env, run=subprocess.run):
+    """Every source's name, in the configured order, as (name, source). `default` closes the list."""
     env = os.environ if env is None else env
     configured = str(cfg.get("agent") or "auto").strip()
+    out = []
     for source in cfg.get("identity_order") or ["env", "config", "transcript", "git", "default"]:
         if source == "env":
             name = str(env.get("DREAMING_AGENT") or "").strip()
             if name:
-                return _candidate(name, "env")
+                out.append(_candidate(name, "env"))
         elif source == "config":
             if configured and configured.lower() != "auto":
-                return _candidate(configured, "config")
+                out.append(_candidate(configured, "config"))
         elif source == "transcript" and transcript and os.path.isfile(transcript):
             try:
                 name = extract.transcript_agent_name(transcript) or ""
             except Exception:
                 name = ""
             if name:
-                return _candidate(name, "transcript")
+                out.append(_candidate(name, "transcript"))
         elif source == "git":
             name = _git_user_name(cwd, run)
             if name:
-                return _candidate(name, "git")
+                out.append(_candidate(name, "git"))
         elif source == "default":
-            return "default", "default"
-    return "default", "default"
+            out.append(("default", "default"))
+    if not out or out[-1][0] != "default":
+        out.append(("default", "default"))
+    return out
+
+
+def agent_name(cfg, cwd, transcript, env, run=subprocess.run):
+    return agent_candidates(cfg, cwd, transcript, env, run)[0]
 
 
 def scratch_root(hook, cfg=None):
@@ -95,17 +103,24 @@ def scratch_root(hook, cfg=None):
 
 
 def resolve(cfg, cwd, transcript=None, env=None, run=subprocess.run, hook=None):
-    name, source = agent_name(cfg, cwd, transcript, env, run)
+    candidates = agent_candidates(cfg, cwd, transcript, env, run)
+    name, source = candidates[0]
     agents = cfg.get("agents") or {}
     if agents:
-        path = agents.get(name)
-        if not path:
-            return Resolution(name, source, scratch_root(hook, cfg), True,
-                              "%s (%s) is not in the agents map; dreaming into scratch" % (name, source))
-        if not os.path.isdir(path):
-            return Resolution(name, source, scratch_root(hook, cfg), True,
-                              "mapped store for %s is missing at %s; not creating it; dreaming into scratch" % (name, path))
-        return Resolution(name, source, path, False, "%s (%s) -> %s" % (name, source, path))
+        # With a map, the FIRST source whose name is mapped wins. Measured 2026-09-22: the desktop
+        # app's transcript agent-name record carries the session TITLE, so trusting the first
+        # source alone sent a real session to scratch while git config named the agent correctly.
+        for cand, src in candidates:
+            path = agents.get(cand)
+            if not path:
+                continue
+            if not os.path.isdir(path):
+                return Resolution(cand, src, scratch_root(hook, cfg), True,
+                                  "mapped store for %s is missing at %s; not creating it; dreaming into scratch" % (cand, path))
+            return Resolution(cand, src, path, False, "%s (%s) -> %s" % (cand, src, path))
+        tried = ", ".join("%s (%s)" % (c, s) for c, s in candidates if s != "default")
+        return Resolution(name, source, scratch_root(hook, cfg), True,
+                          "none of [%s] is in the agents map; dreaming into scratch" % (tried or "no name found"))
     store = os.path.normpath(os.path.join(str(cfg.get("store_root") or ""), name))
     return Resolution(name, source, store, False, "%s (%s) -> %s" % (name, source, store))
 

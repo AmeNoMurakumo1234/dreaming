@@ -96,8 +96,29 @@ class IdentityTests(unittest.TestCase):
                                hook={"scratchpad_dir": os.path.join(self.tmp, "scratch")})
         self.assertTrue(res.scratch)
         self.assertTrue(res.store.startswith(os.path.join(self.tmp, "scratch")))
-        self.assertIn("not in the agents map", res.reason)
+        self.assertIn("in the agents map", res.reason)
+        self.assertIn("Stranger (env)", res.reason)
         self.assertFalse(os.path.exists(os.path.join(self.project, "stores")))
+
+    def test_with_a_map_the_first_source_whose_name_is_mapped_wins(self):
+        # Measured 2026-09-22 in the desktop app: the transcript's last agent-name record carried the
+        # SESSION TITLE ("RTX 5080 market research"), so a map keyed by agent sent a real Joule
+        # session to scratch. With a map present, an unmapped name is not a verdict - the next
+        # source is consulted, and only when no source maps does the dream go to scratch.
+        store = os.path.join(self.project, "team", "worker", "memory")
+        os.makedirs(store)
+        cfg = self._cfg({"agents": {"Joule": "team/worker/memory"}})
+        titled = os.path.join(self.tmp, "titled.jsonl")
+        with open(titled, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "agent-name", "agentName": "RTX 5080 market research", "sessionId": "s"}) + "\n")
+        res = identity.resolve(cfg, self.project, transcript=titled, env={}, run=_git("Joule"))
+        self.assertFalse(res.scratch)
+        self.assertEqual((res.agent, res.source), ("Joule", "git"))
+        res = identity.resolve(cfg, self.project, transcript=titled, env={}, run=_git("Nobody"),
+                               hook={"scratchpad_dir": os.path.join(self.tmp, "scratch")})
+        self.assertTrue(res.scratch)
+        self.assertIn("RTX 5080 market research", res.reason)
+        self.assertIn("Nobody", res.reason)
 
     def test_mapped_store_missing_is_not_created(self):
         cfg = self._cfg({"agents": {"Joule": "team/worker/memory"}})

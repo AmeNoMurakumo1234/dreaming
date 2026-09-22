@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 - 2026-09-22
+
+- With an `agents` map, the FIRST identity source whose name is mapped wins. Measured in the Claude
+  desktop app: the transcript's agent-name record carries the session TITLE, not the agent, so a
+  real session was sent to scratch while git config named the agent correctly. The scratch reason
+  now lists every candidate tried.
+
 ## 0.1.0 - 2026-09-22
 
 First release. Ported from the quantum-concepts sleep step (issue 1974 there), with the four
