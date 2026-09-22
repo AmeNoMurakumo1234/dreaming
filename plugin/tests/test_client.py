@@ -47,7 +47,7 @@ class ChatTests(unittest.TestCase):
             seen["url"] = req.full_url
             seen["auth"] = req.get_header("Authorization")
             seen["body"] = json.loads(req.data.decode("utf-8"))
-            return _Resp({"choices": [{"message": {"content": "hello — world"}, "finish_reason": "stop"}]})
+            return _Resp({"choices": [{"message": {"content": "hello \u2014 world"}, "finish_reason": "stop"}]})
 
         out = client.chat(dict(OC), "sys", "usr", max_tokens=9000, urlopen=_urlopen_factory(handler),
                           env={"DREAMING_API_KEY": "k1"})
@@ -125,7 +125,7 @@ class HelperTests(unittest.TestCase):
         self.assertFalse(client.looks_truncated_json("pure prose"))
 
     def test_to_ascii_folds_the_seven_prose_characters_and_never_raises(self):
-        text = "a — b – c ‘q’ “d” … é"
+        text = "a \u2014 b \u2013 c \u2018q\u2019 \u201cd\u201d \u2026 \u00e9"
         out = client.to_ascii(text)
         self.assertTrue(all(ord(c) < 128 for c in out), out)
         self.assertIn("a - b - c 'q' \"d\" ...", out)
