@@ -51,6 +51,29 @@ environment is the alternative. Without a reachable server the plugin falls back
 (which uses the CLI's own login, so run `claude login` once if you want that engine) and then to a
 mechanical brief.
 
+**A reasoning server needs a bigger reply budget.** Some servers split the model's thinking into
+`reasoning_content` and count it against `max_tokens`; at the default 4096 they can spend the whole
+budget thinking and return no content, and sleep.log says so:
+`hit max_tokens (4096) before any content; the server spent the budget on 15084 chars of
+reasoning_content - raise openai_compatible.max_tokens`. Set it per server:
+
+```json
+{ "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "~/.llamakey", "model": "local",
+                        "max_tokens": 12000} }
+```
+
+**Several servers.** Give `openai_compatible` a list in preference order; the first that answers
+its probe is used for the whole sleep, and one that raises is skipped rather than ending the
+ladder. `label` names it in the logs.
+
+```json
+{ "openai_compatible": [
+    {"label": "4090", "base_url": "https://fast.example", "api_key_file": "~/.llamakey", "model": "local"},
+    {"label": "mini", "base_url": "http://192.168.1.111:8602", "api_key_file": "~/.llamakey", "model": "local",
+     "max_tokens": 12000, "timeout": 1200}
+  ] }
+```
+
 ## Try it on a transcript without touching a store
 
 ```

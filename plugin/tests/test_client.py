@@ -141,5 +141,66 @@ class HelperTests(unittest.TestCase):
         self.assertIn("a - b - c 'q' \"d\" ...", out)
 
 
+class ReplyBudgetTests(unittest.TestCase):
+    """Assay, 2026-09-23: a reasoning server (reasoning_content split out) spent the whole 4000-token
+    budget thinking and wrote no content; chat() called that 'empty completion' and nothing in
+    config could raise the budget, so every sleep degraded to mechanical with a wrong log line."""
+
+    def test_resolve_max_tokens_clamps_to_the_cap_when_unconfigured(self):
+        self.assertEqual(client.resolve_max_tokens({}, 9000), 4096)
+        self.assertEqual(client.resolve_max_tokens({}, 4000), 4000)
+        self.assertEqual(client.resolve_max_tokens({}, 1), 64)
+
+    def test_config_max_tokens_overrides_both_the_request_and_the_cap(self):
+        self.assertEqual(client.resolve_max_tokens({"max_tokens": 8000}, 4000), 8000)
+        self.assertEqual(client.resolve_max_tokens({"max_tokens": "12000"}, 64), 12000)
+        self.assertEqual(client.resolve_max_tokens({"max_tokens": 0}, 4000), 4000)     # unset-like: old behaviour
+
+    def test_config_max_tokens_reaches_the_wire(self):
+        seen = {}
+
+        def handler(req):
+            seen["body"] = json.loads(req.data.decode("utf-8"))
+            return _Resp({"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]})
+
+        out = client.chat(dict(OC, max_tokens=8000), "s", "u", max_tokens=4000, urlopen=_urlopen_factory(handler), env={})
+        self.assertTrue(out["ok"])
+        self.assertEqual(seen["body"]["max_tokens"], 8000)
+
+    def test_length_with_empty_content_names_the_budget_and_the_reasoning_it_bought(self):
+        reasoning = "x" * 15084
+
+        def handler(req):
+            return _Resp({"choices": [{"message": {"content": "", "reasoning_content": reasoning},
+                                       "finish_reason": "length"}],
+                          "usage": {"completion_tokens": 4000}})
+
+        out = client.chat(dict(OC), "s", "u", max_tokens=4000, urlopen=_urlopen_factory(handler), env={})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["finish_reason"], "length")
+        self.assertIn("max_tokens (4000)", out["error"])
+        self.assertIn("15084", out["error"])
+        self.assertIn("reasoning_content", out["error"])
+        self.assertIn("openai_compatible.max_tokens", out["error"])
+
+    def test_non_length_empty_content_is_still_empty_and_names_its_reason(self):
+        def handler(req):
+            return _Resp({"choices": [{"message": {"content": "   "}, "finish_reason": "stop"}]})
+
+        out = client.chat(dict(OC), "s", "u", urlopen=_urlopen_factory(handler), env={})
+        self.assertFalse(out["ok"])
+        self.assertIn("empty completion", out["error"])
+        self.assertIn("stop", out["error"])
+        self.assertEqual(out["finish_reason"], "stop")
+
+    def test_finish_reason_rides_a_successful_reply(self):
+        def handler(req):
+            return _Resp({"choices": [{"message": {"content": "{}"}, "finish_reason": "length"}]})
+
+        out = client.chat(dict(OC), "s", "u", urlopen=_urlopen_factory(handler), env={})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["finish_reason"], "length")
+
+
 if __name__ == "__main__":
     unittest.main()

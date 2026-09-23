@@ -57,9 +57,9 @@ variables `DREAMING_AGENT`, `DREAMING_DISABLED=1`, `DREAMING_STORE_ROOT`, `DREAM
   "identity_order": ["env", "config", "transcript", "git", "default"],
   "engines": ["openai_compatible", "claude", "mechanical"],
   "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "", "api_key_env": "DREAMING_API_KEY",
-                        "model": "local", "timeout": 900},
+                        "model": "local", "timeout": 900, "max_tokens": 0, "label": ""},
   "claude": {"model": "haiku", "timeout": 900},
-  "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 2400,
+  "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 900,
   "result_head": 400, "include_thinking": false,
   "index_file": "MEMORY.md", "stale_days": 14
 }
@@ -68,6 +68,26 @@ variables `DREAMING_AGENT`, `DREAMING_DISABLED=1`, `DREAMING_STORE_ROOT`, `DREAM
 `agents` maps an agent name to a store directory. At project level a relative path is relative to
 the project root. When the map is non-empty, an agent not in it dreams into scratch and the hook
 prints why: a map is a statement of who lives here.
+
+`openai_compatible` may also be a LIST of endpoint dicts in preference order, each with its own
+`base_url`, key, model, timeout and `max_tokens`, and an optional `label` for the logs:
+
+```json
+{ "openai_compatible": [
+    {"label": "4090", "base_url": "https://fast.example:443", "api_key_file": "~/.llamakey", "model": "local"},
+    {"label": "mini", "base_url": "http://192.168.1.111:8602", "api_key_file": "~/.llamakey", "model": "local",
+     "max_tokens": 12000, "timeout": 1200}
+  ] }
+```
+
+The first endpoint whose probe answers is used for the whole sleep; a probe that raises moves to
+the next endpoint, not to `claude`. A single dict is one endpoint and reads exactly as before.
+`DREAMING_BASE_URL`, `DREAMING_MODEL` and `DREAMING_API_KEY_FILE` steer the FIRST endpoint of a
+list. `max_tokens` (per endpoint) overrides the 4096 reply clamp: a REASONING server that splits
+its thinking into `reasoning_content` spends the budget there first and writes no content at
+4000, which sleep.log reports as `hit max_tokens (4000) before any content; the server spent the
+budget on N chars of reasoning_content` - raise `max_tokens` for that endpoint (8000-12000 has
+worked) or point at a server that does not split.
 
 ## Identity and store rules
 
@@ -95,17 +115,23 @@ prints why: a map is a statement of who lives here.
 
 Tried in the configured order; the first that answers wins:
 
-- `openai_compatible` - any `/v1/chat/completions` server (llama.cpp, vLLM, Ollama and the like).
-  Probed with `/health` (a 404 is fine, Ollama has none) and then a one-token authenticated
-  completion, so a server that is up but rejects your key is treated as down.
+- `openai_compatible` - any `/v1/chat/completions` server (llama.cpp, vLLM, Ollama and the like),
+  or a list of them in preference order. Each is probed with `/health` (a 404 is fine, Ollama
+  has none) and then a one-token authenticated completion, so a server that is up but rejects
+  your key is treated as down. With several endpoints the engine is logged as
+  `openai_compatible[<label>]`; with one it stays `openai_compatible`.
 - `claude` - `claude -p --safe-mode` on the CLI's own login. Safe mode disables CLAUDE.md, skills,
   plugins, hooks and MCP inside the nested run on any machine (this plugin included: a nested run
   must never sleep) and keeps the OAuth login (measured 2026-09-22). The prompt goes on stdin.
 - `mechanical` - no model: the brief is built from the last turns, no lessons. Always available.
 
 Every engine call gets the remaining budget as its timeout, capped by the engine's configured
-timeout, and a stage is skipped when less than thirty seconds remain. With the defaults (budget
-2400 s, engine timeout 900 s) a sleep cannot cross the hook's 3600 s ceiling.
+timeout, and a stage is skipped when less than thirty seconds remain, so a sleep cannot cross the
+hook's 3600 s ceiling whatever the budget. The default budget is 900 s (it was 2400 until 0.2.0):
+measured full-transcript sleeps cost 223 s on a local 27B and 88 s on a 4090, and a budget that
+let a slow or misconfigured server block an interactive session for forty minutes was the wrong
+default. The brief is written before the first engine call, so running out costs lessons, never
+the resume. Raise `budget_seconds` for a server you know is slow and want to wait for.
 
 ## Reading sleep.log
 

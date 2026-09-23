@@ -84,5 +84,44 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(os.path.normcase(cfg["_project_dir"]), os.path.normcase(self.project))
 
 
+class EndpointListTests(ConfigTests):
+    """`openai_compatible` as a LIST of endpoints (Assay, 2026-09-23). The two knock-ons that bit:
+    api_key_file was expanded for a dict only, and a DREAMING_* scalar did setdefault() on a list,
+    which raised - and a hook that cannot load its config is a hook that never dreams."""
+
+    def test_api_key_file_is_expanded_for_every_endpoint(self):
+        self._write(os.path.join(self.project, ".dreaming.json"),
+                    {"openai_compatible": [{"base_url": "http://a:1", "api_key_file": "keys/a"},
+                                           {"base_url": "http://b:1", "api_key_file": "~/b.key"}]})
+        cfg = config.load(project_dir=self.project, env={}, home=self.home)
+        eps = cfg["openai_compatible"]
+        self.assertIsInstance(eps, list)
+        self.assertEqual(eps[0]["api_key_file"], os.path.join(self.project, "keys", "a"))
+        self.assertEqual(eps[1]["api_key_file"], os.path.join(self.home, "b.key"))
+
+    def test_env_scalar_steers_the_first_endpoint_without_raising(self):
+        self._write(os.path.join(self.project, ".dreaming.json"),
+                    {"openai_compatible": [{"base_url": "http://a:1", "model": "a"}, {"base_url": "http://b:1", "model": "b"}]})
+        cfg = config.load(project_dir=self.project, env={"DREAMING_MODEL": "env-model", "DREAMING_BASE_URL": "http://env:9"},
+                          home=self.home)
+        self.assertEqual(cfg["openai_compatible"][0]["model"], "env-model")
+        self.assertEqual(cfg["openai_compatible"][0]["base_url"], "http://env:9")
+        self.assertEqual(cfg["openai_compatible"][1]["model"], "b")
+        self.assertIn("env", cfg["_sources"])
+
+    def test_env_scalar_declines_an_empty_list_without_raising(self):
+        self._write(os.path.join(self.project, ".dreaming.json"), {"openai_compatible": []})
+        cfg = config.load(project_dir=self.project, env={"DREAMING_MODEL": "env-model"}, home=self.home)
+        self.assertEqual(cfg["openai_compatible"], [])
+
+    def test_a_single_dict_endpoint_is_untouched(self):
+        self._write(os.path.join(self.project, ".dreaming.json"),
+                    {"openai_compatible": {"base_url": "http://x:1", "api_key_file": "k"}})
+        cfg = config.load(project_dir=self.project, env={"DREAMING_MODEL": "m"}, home=self.home)
+        self.assertIsInstance(cfg["openai_compatible"], dict)
+        self.assertEqual(cfg["openai_compatible"]["api_key_file"], os.path.join(self.project, "k"))
+        self.assertEqual(cfg["openai_compatible"]["model"], "m")
+
+
 if __name__ == "__main__":
     unittest.main()

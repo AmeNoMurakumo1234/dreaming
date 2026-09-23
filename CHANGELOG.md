@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.0 - 2026-09-23
+
+Three defects found by Assay wiring 0.1.2 to two llama servers running the same gguf (report of
+2026-09-23; re-implemented here test-first from the report, 22 tests added, 107 pass).
+
+- `chat()` reads `finish_reason`. An empty reply at `length` now says which budget was hit and how
+  many chars of `reasoning_content` consumed it; any other empty reply names its reason;
+  `finish_reason` rides every result. The old bare `empty completion` covered "said nothing" and
+  "ran out of room", which want opposite fixes.
+- `openai_compatible.max_tokens` (per endpoint) overrides both the caller's request and the 4096
+  clamp; unset keeps 0.1.2 behaviour exactly. Against a reasoning server no configuration of
+  0.1.2 could produce an answer.
+- `openai_compatible` may be a LIST of endpoint dicts in preference order; a single dict is one
+  entry. The first whose probe answers is used for the sleep, a probe that raises falls through to
+  the next endpoint (not to `claude`), and with several endpoints the engine is logged as
+  `openai_compatible[<label>]`. Two config knock-ons fixed with it: `api_key_file` is expanded for
+  every endpoint, and a `DREAMING_*` scalar steers the first endpoint instead of raising
+  `TypeError` on a list (a hook that cannot load its config never dreams).
+- `budget_seconds` default 2400 -> 900. Measured sleeps: 223 s (local 27B), 88 s (4090). The hook
+  ceiling stays 3600 so a configured larger budget still fits.
+
+Ruled and not changed: the map and reduce still ask for 4000 tokens (the configured `max_tokens`
+wins, which is the knob an operator actually has); `EngineResult` does not carry `finish_reason`
+(a truncated non-empty reply is already caught by the distiller's salvage and flagged in the log).
+
 ## 0.1.2 - 2026-09-22
 
 Documentation only; no code change.

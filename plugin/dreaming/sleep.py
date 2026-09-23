@@ -20,7 +20,7 @@ import traceback
 from . import distill as sd, extract as sx
 
 DREAMS_DIRNAME = "dreams"
-DEFAULT_BUDGET_SECONDS = 2400   # plus one 900 s call stays under the hook's 3600 s ceiling
+DEFAULT_BUDGET_SECONDS = 900    # config.DEFAULTS is the authority; keep this equal to it
 DEFAULT_CHUNK_CHARS = sd.DEFAULT_CHUNK_CHARS
 DEFAULT_CAP_CHARS = 400_000
 DREAM_STALE_DAYS = 14

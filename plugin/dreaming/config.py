@@ -22,9 +22,14 @@ DEFAULTS = {
     "claude": {"model": "haiku", "timeout": 900},
     "chunk_chars": 60000,
     "cap_chars": 400000,
-    # 2400 + one 900 s engine call stays under the hook's 3600 s ceiling; every engine call gets
-    # the remaining budget as its timeout, so the ceiling is never crossed by a slow last call.
-    "budget_seconds": 2400,
+    # Every engine call gets the remaining budget as its timeout, so a sleep never crosses the
+    # hook's 3600 s ceiling; the brief is written mechanically before the first call, so running
+    # out of budget costs lessons, not the resume. Measured full-transcript sleeps: 223 s on a
+    # local 27B (Joule, 2026-09-22), 88 s on a 4090 (Assay, 2026-09-23). The default was 2400,
+    # which let a compaction block an interactive session for forty minutes on a slow or
+    # misconfigured server; 900 fits what the tool costs with room for a slow box. Raise it in
+    # config for a server you know is slow and want to wait for.
+    "budget_seconds": 900,
     "result_head": 400,
     "include_thinking": False,
     "index_file": "MEMORY.md",
@@ -41,6 +46,38 @@ _ENV_SCALARS = {
 
 USER_FILE = os.path.join(".dreaming", "config.json")
 PROJECT_FILE = ".dreaming.json"
+
+
+def _endpoint_dicts(oc):
+    """`openai_compatible` may be one endpoint dict or a LIST of them (preference order). Every
+    per-endpoint fix-up (key-file expansion, an env override) walks this, never `oc.get(...)`."""
+    if isinstance(oc, dict):
+        return [oc]
+    if isinstance(oc, list):
+        return [e for e in oc if isinstance(e, dict)]
+    return []
+
+
+def _env_target(cfg, path):
+    """(node, key) a DREAMING_* scalar writes to, or None to decline. A path into
+    `openai_compatible` steers the FIRST (preferred) endpoint when it is a list; an empty list
+    has nothing to steer. This used to be setdefault(key, {})[...] = value, which raised
+    TypeError against a list - and a hook that cannot load its config is a hook that never
+    dreams (Assay, 2026-09-23)."""
+    node = cfg
+    for key in path[:-1]:
+        child = node.get(key)
+        if child is None:
+            child = node[key] = {}
+        elif isinstance(child, list):
+            dicts = _endpoint_dicts(child)
+            if not dicts:
+                return None
+            child = dicts[0]
+        elif not isinstance(child, dict):
+            return None
+        node = child
+    return node, path[-1]
 
 
 def _merge(base, over):
@@ -123,10 +160,11 @@ def load(project_dir=None, env=None, home=None):
     touched = False
     for name, path in _ENV_SCALARS.items():
         if env.get(name):
-            node = cfg
-            for key in path[:-1]:
-                node = node.setdefault(key, {})
-            node[path[-1]] = env[name]
+            target = _env_target(cfg, path)
+            if target is None:
+                continue        # e.g. an empty endpoint list: nothing to steer, and never a raise
+            node, key = target
+            node[key] = env[name]
             touched = True
     if str(env.get("DREAMING_DISABLED", "")).strip().lower() in ("1", "true", "yes"):
         cfg["enabled"] = False
@@ -138,9 +176,9 @@ def load(project_dir=None, env=None, home=None):
     # saying "stores" means <project>/stores), else to home.
     cfg["store_root"] = expand_path(cfg.get("store_root"), root or home, home)
     cfg["agents"] = {k: expand_path(v, root, home) for k, v in (cfg.get("agents") or {}).items()}
-    oc = cfg.get("openai_compatible") or {}
-    if oc.get("api_key_file"):
-        oc["api_key_file"] = expand_path(oc["api_key_file"], root, home)
+    for oc in _endpoint_dicts(cfg.get("openai_compatible")):
+        if oc.get("api_key_file"):
+            oc["api_key_file"] = expand_path(oc["api_key_file"], root, home)
     cfg["_project_dir"] = root
     cfg["_sources"] = sources
     return cfg

@@ -27,6 +27,7 @@ import json
 import os
 import shutil
 import subprocess
+import urllib.parse
 from collections import namedtuple
 
 from . import client
@@ -43,20 +44,57 @@ def _bounded(configured, requested):
     return max(10, min(configured, int(requested)))
 
 
+def endpoints(cfg):
+    """`openai_compatible` as a list of endpoint dicts in preference order. A single dict is one
+    entry, so a 0.1.x config is untouched; an empty or missing value is no endpoint at all."""
+    oc = (cfg or {}).get("openai_compatible")
+    if isinstance(oc, dict):
+        return [oc] if oc else []
+    if isinstance(oc, list):
+        return [e for e in oc if isinstance(e, dict)]
+    return []
+
+
+def endpoint_label(ep):
+    label = str((ep or {}).get("label") or "").strip()
+    if label:
+        return label
+    netloc = urllib.parse.urlsplit(str((ep or {}).get("base_url") or "")).netloc
+    return netloc or "openai_compatible"
+
+
+def _engine_name(cfg, ep):
+    return "openai_compatible" if len(endpoints(cfg)) <= 1 else "openai_compatible[%s]" % endpoint_label(ep)
+
+
+def first_available(cfg, *, available=None):
+    """The first endpoint whose probe answers. A probe that RAISES is an unavailable endpoint,
+    not the end of the ladder: the next endpoint is still tried (Assay, 2026-09-23)."""
+    probe = available or client.available
+    for ep in endpoints(cfg):
+        try:
+            if probe(ep):
+                return ep
+        except Exception:
+            continue
+    return None
+
+
 def local_available(cfg):
-    try:
-        return bool(client.available(cfg.get("openai_compatible") or {}))
-    except Exception:
-        return False
+    return first_available(cfg) is not None
 
 
-def local_complete(cfg, system, user, *, max_tokens=4000, timeout=None):
-    oc = dict(cfg.get("openai_compatible") or {})
+def local_complete(cfg, system, user, *, max_tokens=4000, timeout=None, endpoint=None):
+    eps = endpoints(cfg)
+    if endpoint is None:
+        endpoint = eps[0] if eps else {}
+    oc = dict(endpoint)
     oc["timeout"] = _bounded(oc.get("timeout"), timeout)
+    name = _engine_name(cfg, endpoint)
     res = client.chat(oc, system, user, max_tokens=max_tokens)
     if not res["ok"]:
-        return EngineResult(False, "", "openai_compatible", str(res["error"]))
-    return EngineResult(True, res["text"], "openai_compatible", None)
+        return EngineResult(False, "", name, str(res["error"]))
+    return EngineResult(True, res["text"], name, None)
 
 
 def _claude_exe():
@@ -94,15 +132,21 @@ def claude_smoke(cfg_claude, run=subprocess.run):
     return bool(r.ok and r.text.strip() == "OK")
 
 
-def build_engine(cfg, *, local_ok=None, claude_ok=None):
+def build_engine(cfg, *, local_ok=None, claude_ok=None, available=None):
     """First engine in cfg['engines'] that answers, as (callable, name). local_ok / claude_ok
-    override the live probes so tests never touch a server or spawn anything."""
+    override the live probes so tests never touch a server or spawn anything; `available` is an
+    injectable per-endpoint probe used when local_ok is not given. With several endpoints the
+    name is openai_compatible[<label>], with one it stays plain so existing logs read the same."""
     for name in cfg.get("engines") or ["openai_compatible", "claude", "mechanical"]:
         if name == "openai_compatible":
-            ok = local_available(cfg) if local_ok is None else local_ok
-            if ok:
-                return (lambda s, u, *, max_tokens=4000, timeout=None:
-                        local_complete(cfg, s, u, max_tokens=max_tokens, timeout=timeout)), "openai_compatible"
+            eps = endpoints(cfg)
+            if not eps or local_ok is False:
+                continue
+            ep = eps[0] if local_ok else first_available(cfg, available=available)
+            if ep is not None:
+                def _local(s, u, *, max_tokens=4000, timeout=None, _ep=ep):
+                    return local_complete(cfg, s, u, max_tokens=max_tokens, timeout=timeout, endpoint=_ep)
+                return _local, _engine_name(cfg, ep)
         elif name == "claude":
             ok = claude_smoke(cfg.get("claude") or {}) if claude_ok is None else claude_ok
             if ok:

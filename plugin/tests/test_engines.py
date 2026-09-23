@@ -121,5 +121,76 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(name, "mechanical")
 
 
+class MultiEndpointTests(unittest.TestCase):
+    """Assay, 2026-09-23: two servers running the same gguf differed 47x in speed, and
+    `openai_compatible` could name exactly one of them. It may now be a list in preference order."""
+
+    FAST = {"label": "4090", "base_url": "http://fast:1", "model": "local", "timeout": 1}
+    SLOW = {"label": "mini", "base_url": "http://slow:1", "model": "local", "timeout": 1}
+
+    def test_both_shapes_normalise_and_keep_preference_order(self):
+        one = dict(CFG)
+        self.assertEqual(se.endpoints(one), [CFG["openai_compatible"]])
+        many = dict(CFG, openai_compatible=[self.FAST, self.SLOW])
+        self.assertEqual([e["label"] for e in se.endpoints(many)], ["4090", "mini"])
+        self.assertEqual(se.endpoints(dict(CFG, openai_compatible=[])), [])
+        self.assertEqual(se.endpoints({}), [])
+
+    def test_endpoint_label_is_the_label_else_the_host_and_port(self):
+        self.assertEqual(se.endpoint_label(self.FAST), "4090")
+        self.assertEqual(se.endpoint_label({"base_url": "http://192.168.1.111:8602/"}), "192.168.1.111:8602")
+        self.assertEqual(se.endpoint_label({}), "openai_compatible")
+
+    def test_a_raising_first_endpoint_falls_through_to_the_second_not_to_claude(self):
+        calls = []
+
+        def probe(ep):
+            calls.append(ep["label"])
+            if ep["label"] == "4090":
+                raise OSError("connection refused")
+            return True
+
+        cfg = dict(CFG, openai_compatible=[self.FAST, self.SLOW])
+        self.assertEqual(se.first_available(cfg, available=probe), self.SLOW)
+        fn, name = se.build_engine(cfg, claude_ok=True, available=probe)
+        self.assertEqual(name, "openai_compatible[mini]")
+        self.assertEqual(calls, ["4090", "mini", "4090", "mini"])
+
+    def test_a_single_endpoint_keeps_the_plain_engine_name(self):
+        fn, name = se.build_engine(CFG, local_ok=True, claude_ok=False)
+        self.assertEqual(name, "openai_compatible")
+        fn, name = se.build_engine(dict(CFG, openai_compatible=[self.FAST]), local_ok=True, claude_ok=False)
+        self.assertEqual(name, "openai_compatible")
+        fn, name = se.build_engine(dict(CFG, openai_compatible=[self.FAST, self.SLOW]), local_ok=True, claude_ok=False)
+        self.assertEqual(name, "openai_compatible[4090]")     # local_ok=True short-circuits the probe: first wins
+
+    def test_the_chosen_endpoint_is_the_one_called(self):
+        seen = {}
+
+        def fake_chat(oc, system, user, *, max_tokens=4000, **kw):
+            seen["base_url"] = oc["base_url"]
+            seen["max_tokens"] = max_tokens
+            return {"ok": True, "text": "{}", "error": None, "finish_reason": "stop"}
+
+        cfg = dict(CFG, openai_compatible=[self.FAST, self.SLOW])
+        fn, name = se.build_engine(cfg, claude_ok=False, available=lambda ep: ep["label"] == "mini")
+        self.assertEqual(name, "openai_compatible[mini]")
+        old = se.client.chat
+        se.client.chat = fake_chat
+        try:
+            res = fn("s", "u", max_tokens=1234, timeout=5)
+        finally:
+            se.client.chat = old
+        self.assertTrue(res.ok)
+        self.assertEqual(res.engine, "openai_compatible[mini]")
+        self.assertEqual(seen["base_url"], "http://slow:1")
+        self.assertEqual(seen["max_tokens"], 1234)
+
+    def test_no_endpoint_at_all_still_reaches_claude(self):
+        fn, name = se.build_engine(dict(CFG, openai_compatible=[]), claude_ok=True, available=lambda ep: True)
+        self.assertEqual(name, "claude")
+        self.assertFalse(se.local_available(dict(CFG, openai_compatible=[])))
+
+
 if __name__ == "__main__":
     unittest.main()

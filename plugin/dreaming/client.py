@@ -17,6 +17,21 @@ import urllib.request
 
 MAX_TOKENS_CAP = 4096
 
+
+def resolve_max_tokens(cfg_oc, requested):
+    """The reply budget for one call. A configured `openai_compatible.max_tokens` overrides both
+    the caller's request and MAX_TOKENS_CAP; unset keeps the 0.1.2 clamp exactly. The cap was a
+    measurement of ONE provider and is not a floor for a reasoning server, whose budget must cover
+    the thinking as well as the answer (Assay, 2026-09-23: 15k chars of reasoning_content and no
+    content at 4000)."""
+    try:
+        configured = int(cfg_oc.get("max_tokens") or 0)
+    except (TypeError, ValueError):
+        configured = 0
+    if configured > 0:
+        return max(64, configured)
+    return int(max(64, min(MAX_TOKENS_CAP, int(requested))))
+
 _ASCII_MAP = {
     "\u2014": "-", "\u2013": "-", "\u2012": "-", "\u2010": "-", "\u2011": "-",
     "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
@@ -56,24 +71,39 @@ def _post(cfg_oc, path, payload, *, timeout, urlopen, env):
 
 
 def chat(cfg_oc, system, user, *, max_tokens=4000, temperature=0.2, urlopen=urllib.request.urlopen, env=None):
+    budget = resolve_max_tokens(cfg_oc, max_tokens)
     payload = {"model": str(cfg_oc.get("model") or "local"), "temperature": float(temperature),
-               "max_tokens": int(max(64, min(MAX_TOKENS_CAP, int(max_tokens)))),
+               "max_tokens": budget,
                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
     try:
         data = _post(cfg_oc, "/v1/chat/completions", payload, timeout=int(cfg_oc.get("timeout") or 900),
                      urlopen=urlopen, env=env)
     except urllib.error.HTTPError as exc:
-        return {"ok": False, "text": "", "error": "HTTP %s from %s" % (exc.code, cfg_oc.get("base_url"))}
+        return {"ok": False, "text": "", "error": "HTTP %s from %s" % (exc.code, cfg_oc.get("base_url")),
+                "finish_reason": None}
     except Exception as exc:
-        return {"ok": False, "text": "", "error": str(exc)}
+        return {"ok": False, "text": "", "error": str(exc), "finish_reason": None}
     try:
-        text = data["choices"][0]["message"]["content"]
+        choice = data["choices"][0]
+        message = choice["message"]
+        text = message["content"]
     except (KeyError, IndexError, TypeError):
-        return {"ok": False, "text": "", "error": "no choices in reply"}
+        return {"ok": False, "text": "", "error": "no choices in reply", "finish_reason": None}
+    finish = choice.get("finish_reason") if isinstance(choice, dict) else None
     text = to_ascii(str(text or "")).strip()
     if not text:
-        return {"ok": False, "text": "", "error": "empty completion"}
-    return {"ok": True, "text": text, "error": None}
+        # "said nothing" and "ran out of room" want opposite fixes, so the error must tell them
+        # apart. A reasoning server splits its thinking into reasoning_content and can spend the
+        # whole budget there, leaving content empty at finish_reason=length.
+        if finish == "length":
+            reasoning = len(str((message.get("reasoning_content") if isinstance(message, dict) else "") or ""))
+            return {"ok": False, "text": "",
+                    "error": "hit max_tokens (%d) before any content; the server spent the budget on %d chars"
+                             " of reasoning_content - raise openai_compatible.max_tokens" % (budget, reasoning),
+                    "finish_reason": finish}
+        return {"ok": False, "text": "", "error": "empty completion (finish_reason %s)" % (finish or "unknown"),
+                "finish_reason": finish}
+    return {"ok": True, "text": text, "error": None, "finish_reason": finish}
 
 
 def available(cfg_oc, *, urlopen=urllib.request.urlopen, env=None):

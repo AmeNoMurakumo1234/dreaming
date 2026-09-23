@@ -276,6 +276,14 @@ class SleepRunTests(unittest.TestCase):
         self.assertIn(os.path.join(self.memory, "dreams"), out)
 
 
+class DefaultsAgreeTests(unittest.TestCase):
+    def test_sleep_module_budget_default_equals_the_config_default(self):
+        # Two copies of one number drift at the second one: 0.2.0 lowered config.DEFAULTS to 900
+        # and sleep.py still said 2400 until a grep caught it. The config is the authority.
+        from dreaming import config
+        self.assertEqual(sl.DEFAULT_BUDGET_SECONDS, config.DEFAULTS["budget_seconds"])
+
+
 class ReseedAndNoticeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="dreaming-reseed-")
