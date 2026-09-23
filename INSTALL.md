@@ -81,9 +81,27 @@ Commit a `.dreaming.json` mapping each agent to its store:
 { "agents": { "Joule": "team/worker/memory", "Codex": "team/book-content/memory" } }
 ```
 
-The agent is taken from `DREAMING_AGENT`, else the transcript's own agent-name record, else
-`git config user.name`. An agent not in the map dreams into scratch; a mapped store that is
-missing is never created.
+The agent is the first source, in this order, whose name is IN THE MAP: `DREAMING_AGENT`, a
+configured `agent`, the transcript's own agent-name record, `git config user.name`. The map
+filters each candidate rather than the first one only, because a source can return a name that
+is not an identity: the Claude Code desktop app writes the SESSION TITLE into the transcript's
+agent-name record, so a session titled "RTX 5080 market research" still dreams as the `Joule`
+that git names. An agent no source can name dreams into scratch, and the hook prints every
+candidate it tried; a mapped store that is missing is never created.
+
+## Updating
+
+```
+claude plugin update dreaming@dreaming
+```
+
+The installer then prints "Restart to apply changes". Measured 2026-09-22 in the desktop app: a
+session that had the plugin installed at 0.1.0, updated to 0.1.1 mid-session, and was then
+compacted ran the 0.1.1 hook without a restart (the dream landed in the mapped store, which the
+0.1.0 identity rule could not have produced from that transcript). That is one measurement of
+one hook, so treat it as "you probably do not have to restart", not as a promise; the hook
+command resolves `${CLAUDE_PLUGIN_ROOT}` at fire time, and the versioned cache directories sit
+side by side, so an old session that keeps the old root is at worst one sleep behind.
 
 ## Uninstall
 

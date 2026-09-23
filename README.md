@@ -64,9 +64,11 @@ A repository with several agents sharing one clone maps each to its own store:
 { "agents": { "Joule": "team/worker/memory", "Codex": "team/book-content/memory" } }
 ```
 
-With a map in place an agent not named in it dreams into scratch, and a mapped store that is
-missing is never created (a lost store must not be silently rebuilt by the tool that serves it).
-The full contract is in the `dreaming` skill.
+With a map in place the agent is the first identity source whose name is in the map (the
+sources, in order: `DREAMING_AGENT`, a configured `agent`, the transcript's agent-name record,
+`git config user.name`). An agent no source can name dreams into scratch, and a mapped store that
+is missing is never created (a lost store must not be silently rebuilt by the tool that serves
+it). The full contract is in the `dreaming` skill.
 
 ## Install
 

@@ -76,6 +76,12 @@ prints why: a map is a statement of who lives here.
    user.name` in the project), `default`. The name becomes a path component, so separators,
    `..`, reserved characters and absurd lengths fall back to `default` with the source marked
    `invalid`.
+   With a non-empty `agents` map the rule is stricter: the winner is the FIRST source in that
+   order whose name is IN THE MAP, not the first source that returns any name. A source can
+   return a name that is not an identity at all - in the Claude Code desktop app the transcript's
+   agent-name record carries the SESSION TITLE - and taking it would send a real agent to scratch
+   while `git` one step down names them correctly. If no source is mapped, scratch, and the
+   printed reason lists every candidate tried.
 2. Store: if `agents` is non-empty, the mapped path or scratch; else `store_root/<agent>`.
 3. A mapped store whose directory is missing is NEVER created: scratch plus a printed reason. A
    lost store must not be silently rebuilt by the tool that serves it.

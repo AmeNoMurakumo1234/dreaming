@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.2 - 2026-09-22
+
+Documentation only; no code change.
+
+- The 0.1.1 identity rule (first MAPPED source wins) reached the code and the changelog but not
+  the skill, the README or INSTALL.md, which still described the 0.1.0 order. All three now state
+  the rule and the desktop-app fact behind it (the transcript's agent-name record is the session
+  title).
+- INSTALL.md gains an Updating section: `claude plugin update` says "Restart to apply changes",
+  and the one measurement so far says the updated hook fires without one.
+- First live fire, for the record: the installed plugin's PreCompact hook ran on a real `/compact`
+  in the desktop app. 2,162 transcript records, 910 after the watermark, 7 map chunks of 60k
+  chars on a local Qwen3.8-27B, reduce halved 0, no degraded stage, 223 s asleep, 5 lessons and
+  2 tensions staged in the mapped store, and the five-field brief re-seeded at the top of the
+  fresh context. Where the brief and the harness summary disagreed (one dream waiting versus
+  two) the brief was right.
+
 ## 0.1.1 - 2026-09-22
 
 - With an `agents` map, the FIRST identity source whose name is mapped wins. Measured in the Claude
