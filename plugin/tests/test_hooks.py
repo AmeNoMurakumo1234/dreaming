@@ -12,7 +12,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOOKS = os.path.abspath(os.path.join(HERE, "..", "hooks"))
 _NO_WINDOW = 0x08000000 if os.name == "nt" else 0
-SCRIPTS = ("precompact_sleep.py", "sessionstart_reseed.py", "sessionstart_notice.py")
+SCRIPTS = ("precompact_sleep.py", "sessionstart_reseed.py", "sessionstart_notice.py", "sessionend_spawn.py")
 
 
 class HookScriptTests(unittest.TestCase):
@@ -89,11 +89,47 @@ class HookScriptTests(unittest.TestCase):
             self.assertEqual(done.returncode, 0)
             self.assertEqual(done.stdout.strip(), "", (script, done.stdout))
 
-    def test_hooks_json_wires_the_three_events(self):
+    def test_sessionend_hook_really_spawns_a_sleep_that_outlives_it(self):
+        # The end-to-end guard: the hook script must return within seconds, and a dream folder
+        # must appear AFTER it has returned, written by the detached child on the mechanical engine.
+        import time
+        self._mechanical_config()
+        project = os.path.join(self.tmp, "proj")
+        os.makedirs(os.path.join(project, ".git"))
+        transcript = os.path.join(project, "s.jsonl")
+        with open(transcript, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "user", "uuid": "u-01", "timestamp": "t",
+                                 "message": {"role": "user", "content": "y" * 30000}}) + "\n")
+        hook = json.dumps({"session_id": "sess-exit", "transcript_path": transcript, "cwd": project,
+                           "reason": "other", "scratchpad_dir": os.path.join(self.tmp, "scratch")})
+        t0 = time.time()
+        done = self._run("sessionend_spawn.py", hook, {"DREAMING_AGENT": "Joule"})
+        elapsed = time.time() - t0
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("exit sleep spawned", done.stdout)
+        self.assertLess(elapsed, 30, "the hook must decide and return, not sleep")
+        store = os.path.join(self.tmp, "stores", "Joule", "dreams")
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            if os.path.isdir(store) and any(os.path.isfile(os.path.join(store, d, "brief.md")) for d in os.listdir(store)):
+                break
+            time.sleep(0.5)
+        self.assertTrue(os.path.isdir(store), "detached child never wrote a dream")
+        folders = os.listdir(store)
+        self.assertEqual(len(folders), 1, folders)
+        with open(os.path.join(store, folders[0], "sleep.log"), "r", encoding="utf-8") as fh:
+            self.assertIn("write |", fh.read())
+
+    def test_hooks_json_wires_the_four_events(self):
         with open(os.path.join(HOOKS, "hooks.json"), "r", encoding="utf-8") as fh:
             spec = json.load(fh)["hooks"]
         self.assertIn("PreCompact", spec)
         self.assertEqual(spec["PreCompact"][0]["hooks"][0]["timeout"], 3600)
+        # Claude Code caps SessionEnd hooks at 60 s (docs: a 1.5 s shared budget, raised by the
+        # timeout field up to 60). A larger number here would be silently clamped.
+        self.assertIn("SessionEnd", spec)
+        self.assertLessEqual(spec["SessionEnd"][0]["hooks"][0]["timeout"], 60)
+        self.assertNotIn("matcher", spec["SessionEnd"][0])
         matchers = [entry.get("matcher") for entry in spec["SessionStart"]]
         self.assertIn("compact", matchers)
         self.assertTrue(any("startup" in (m or "") for m in matchers))

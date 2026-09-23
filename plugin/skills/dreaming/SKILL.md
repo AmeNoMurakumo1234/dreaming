@@ -17,6 +17,7 @@ changes is that nothing worth keeping has to survive it.
 | Event | Hook | What it does |
 |---|---|---|
 | Context about to compact (manual or automatic) | `PreCompact`, blocking, one-hour ceiling | extract the transcript, map each slice, reduce against your index, write a dream folder |
+| The session ends (exit, `/clear`, a `claude -p` run finishing) | `SessionEnd`, capped at 60 s by Claude Code | decide in under a second whether enough transcript is new since the last watermark (`sessionend.min_chars`), then hand the same sleep to a DETACHED windowless child that outlives the session; its dream is reported by the next start notice |
 | Right after compaction | `SessionStart` with the `compact` matcher | re-inject the newest brief for this session as context |
 | A new or resumed session | `SessionStart` with `startup` or `resume` | one line: how many dreams await promotion, and where |
 
@@ -60,6 +61,7 @@ variables `DREAMING_AGENT`, `DREAMING_DISABLED=1`, `DREAMING_STORE_ROOT`, `DREAM
                         "model": "local", "timeout": 900, "max_tokens": 0, "label": ""},
   "claude": {"model": "haiku", "timeout": 900},
   "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 900,
+  "sessionend": {"enabled": true, "min_chars": 20000},
   "result_head": 400, "include_thinking": false,
   "index_file": "MEMORY.md", "stale_days": 14
 }
@@ -68,6 +70,14 @@ variables `DREAMING_AGENT`, `DREAMING_DISABLED=1`, `DREAMING_STORE_ROOT`, `DREAM
 `agents` maps an agent name to a store directory. At project level a relative path is relative to
 the project root. When the map is non-empty, an agent not in it dreams into scratch and the hook
 prints why: a map is a statement of who lives here.
+
+`sessionend` governs the sleep at session end. Claude Code caps SessionEnd hooks at 60 s and a
+sleep costs minutes, so the hook only decides and spawns: it renders the transcript since the last
+watermark and, at `min_chars` or more, starts the ordinary `sleep` as a detached child
+(`python.exe` with CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP and CREATE_BREAKAWAY_FROM_JOB,
+stdin closed, output to `<scratch>/exit-<session>.log`). Below `min_chars` nothing is spawned, which
+is what keeps a `claude -p "Reply OK"` from dreaming. `enabled: false` here turns off only the
+exit sleep; compaction still sleeps.
 
 `openai_compatible` may also be a LIST of endpoint dicts in preference order, each with its own
 `base_url`, key, model, timeout and `max_tokens`, and an optional `label` for the logs:

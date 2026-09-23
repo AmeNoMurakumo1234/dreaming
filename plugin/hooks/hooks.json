@@ -1,6 +1,17 @@
 {
-  "description": "dreaming: sleep at compaction. PreCompact runs the consolidation BLOCKING (the session is asleep) with a one-hour ceiling; SessionStart(compact) re-seeds the fresh context from the brief; SessionStart(startup|resume) says how many dreams await promotion. Every hook exits 0 on any failure; DREAMING_DISABLED=1 or enabled:false in ~/.dreaming/config.json or <project>/.dreaming.json silences all three.",
+  "description": "dreaming: sleep at compaction and at session end. PreCompact runs the consolidation BLOCKING (the session is asleep) with a one-hour ceiling; SessionEnd (capped at 60 s by Claude Code) decides in under a second and hands the sleep to a detached windowless child that outlives the session; SessionStart(compact) re-seeds the fresh context from the brief; SessionStart(startup|resume) says how many dreams await promotion. Every hook exits 0 on any failure; DREAMING_DISABLED=1 or enabled:false in ~/.dreaming/config.json or <project>/.dreaming.json silences all four.",
   "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/sessionend_spawn.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "PreCompact": [
       {
         "hooks": [

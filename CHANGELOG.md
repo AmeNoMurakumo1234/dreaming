@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0 - 2026-09-23
+
+Sleep at session end, so a short session that never compacts still dreams.
+
+- Claude Code caps SessionEnd hooks at 60 s (docs: a 1.5 s shared budget, raised by `timeout` to at
+  most 60), and a sleep costs 70-220 s measured, so the hook cannot sleep. `sessionend_spawn.py`
+  decides in under a second - enough rendered transcript since the last watermark? - and hands the
+  ordinary `sleep` command to a DETACHED child: `python.exe` with CREATE_NO_WINDOW,
+  CREATE_NEW_PROCESS_GROUP and CREATE_BREAKAWAY_FROM_JOB, stdin DEVNULL, stdout to a log in the
+  scratch dir. Measured: such a child ran 90 s past its session's exit and spawned git windowlessly.
+  The next session's start notice reports the dream as usual.
+- New config `sessionend: {"enabled": true, "min_chars": 20000}`; below `min_chars` (a
+  `claude -p "Reply OK"`, a two-line resume) nothing is spawned. The nested `claude -p` engine runs
+  in safe mode, so its own exit never fires this hook.
+- Measured on `claude -p`: SessionEnd fires with `reason: other` and a payload carrying
+  `session_id`, `transcript_path`, `cwd`, `prompt_id`, and the transcript holds the final
+  assistant turn at fire time.
+- 11 tests added (118 pass), including an end-to-end guard in which the hook script returns and a
+  dream folder then appears, written by the detached child.
+
 ## 0.2.0 - 2026-09-23
 
 Three defects found by Assay wiring 0.1.2 to two llama servers running the same gguf (report of

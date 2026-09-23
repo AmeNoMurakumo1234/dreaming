@@ -2,6 +2,7 @@
 """cli.py - the plugin's entry points.
 
     python -m dreaming.cli sleep      # PreCompact hook, hook JSON on stdin; always exit 0
+    python -m dreaming.cli sessionend # SessionEnd hook; spawns a detached `sleep` child; always exit 0
     python -m dreaming.cli reseed     # SessionStart(compact) hook; prints additionalContext JSON
     python -m dreaming.cli notice     # SessionStart(startup|resume) hook; one line if dreams await
     python -m dreaming.cli dream --transcript P [--agent A] [--engine E] [--dry-run]
@@ -15,7 +16,7 @@ import json
 import os
 import sys
 
-from . import config as _config, engines as se, identity, sleep as sl
+from . import config as _config, engines as se, exitsleep, identity, sleep as sl
 
 
 def _utf8_streams():
@@ -97,6 +98,38 @@ def cmd_sleep(args):
             (" | degraded: " + "; ".join(out["degraded"])) if out["degraded"] else ""))
     except Exception as exc:
         print("dreaming: sleep failed (compaction proceeds): %s" % exc)
+    return 0
+
+
+def cmd_sessionend(args):
+    """SessionEnd entry. Decides in under a second and spawns a detached sleep; ALWAYS returns 0.
+    The hook is capped at 60 s by Claude Code, so nothing here may wait on a model."""
+    try:
+        hook = _read_hook_json(args)
+        cfg, cwd, env = _load(args, hook)
+        if not cfg.get("enabled", True) or not exitsleep.settings(cfg)["enabled"]:
+            return 0
+        transcript = args.transcript or hook.get("transcript_path")
+        session_id = args.session or hook.get("session_id") or ""
+        res = identity.resolve(cfg, cwd, transcript=transcript, env=env, hook=hook)
+        out_root = identity.scratch_root(hook, cfg) if res.scratch else res.store
+        watermark = sl.last_watermark(out_root, session_id) if os.path.isdir(out_root) else None
+        verdict, detail = exitsleep.decide(cfg, transcript, watermark=watermark)
+        if verdict != "spawn":
+            print("dreaming: exit sleep skipped (%s)" % detail)
+            return 0
+        log_path = os.path.join(identity.scratch_root(hook, cfg), "exit-%s.log" % (session_id[:8] or "nosid"))
+        argv = exitsleep.child_argv(dict(hook, transcript_path=transcript, session_id=session_id), cwd, args.engine)
+        if args.agent:
+            argv += ["--agent", args.agent]
+        pid, label = exitsleep.spawn_detached(argv, log_path, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        if pid is None:
+            print("dreaming: exit sleep could not spawn (%s)" % label)
+            return 0
+        print("dreaming: exit sleep spawned (pid %d, %s, %d chars since watermark, agent %s%s, log %s)" % (
+            pid, label, detail, res.agent, " -> scratch" if res.scratch else "", log_path))
+    except Exception as exc:
+        print("dreaming: exit sleep failed: %s" % exc)
     return 0
 
 
@@ -214,7 +247,7 @@ def main(argv=None):
         p.add_argument("--transcript")
         p.add_argument("--hook-json")
 
-    for name in ("sleep", "reseed", "notice"):
+    for name in ("sleep", "reseed", "notice", "sessionend"):
         common(sub.add_parser(name))
     d = sub.add_parser("dream")
     common(d)
@@ -226,8 +259,8 @@ def main(argv=None):
     _utf8_streams()
     if args.cmd == "dream" and not args.transcript:
         parser.error("dream needs --transcript")
-    return {"sleep": cmd_sleep, "reseed": cmd_reseed, "notice": cmd_notice, "dream": cmd_dream,
-            "list": cmd_list, "config": cmd_config}[args.cmd](args)
+    return {"sleep": cmd_sleep, "reseed": cmd_reseed, "notice": cmd_notice, "sessionend": cmd_sessionend,
+            "dream": cmd_dream, "list": cmd_list, "config": cmd_config}[args.cmd](args)
 
 
 if __name__ == "__main__":

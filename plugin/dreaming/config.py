@@ -31,6 +31,10 @@ DEFAULTS = {
     # config for a server you know is slow and want to wait for.
     "budget_seconds": 900,
     "result_head": 400,
+    # Sleep at session end, detached (Claude Code caps SessionEnd hooks at 60 s, so the hook only
+    # decides and spawns). min_chars is rendered transcript since the last watermark: below it a
+    # session (a `claude -p "Reply OK"`, a two-line resume) has nothing to dream and spawns nothing.
+    "sessionend": {"enabled": True, "min_chars": 20000},
     "include_thinking": False,
     "index_file": "MEMORY.md",
     "stale_days": 14,

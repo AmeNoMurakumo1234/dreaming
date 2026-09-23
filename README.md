@@ -16,6 +16,7 @@ happens. What changes is that nothing worth keeping has to survive it.
 | When | Hook | Effect |
 |---|---|---|
 | Context about to compact | `PreCompact`, blocking, one-hour ceiling | extract, map each slice, reduce against your index, write a dream folder |
+| The session ends | `SessionEnd` (capped at 60 s) | if enough is new since the last watermark, the same sleep runs in a detached child that outlives the session |
 | Right after compaction | `SessionStart` (`compact`) | the newest brief for this session is injected as context |
 | New or resumed session | `SessionStart` (`startup`, `resume`) | "N dream(s) awaiting promotion in <store>" |
 
