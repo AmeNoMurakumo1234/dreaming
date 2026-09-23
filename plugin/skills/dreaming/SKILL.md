@@ -39,6 +39,12 @@ it (default 50 minutes) stops the work early and writes what it has.
 | `tensions.md` | contradictions with your existing entries, both sides stated, deliberately NOT resolved |
 | `sleep.log` | the run: engine, per-stage timings, every `degraded: <reason>` line, and the `watermark:` uuid the next sleep in this session continues from |
 
+Beside the folders, `<store>/dreams/.watermark-<session>.txt` holds where this session's last
+sleep stopped. It is a file, not a folder, so nothing counts it as a dream, and promotion (which
+deletes the folder) leaves it alone: the next sleep in the session continues from it. Before
+0.3.1 the watermark lived only in sleep.log and died with the promoted folder, so the third sleep
+of a session re-dreamed the whole transcript.
+
 A dream is a CANDIDATE, not a fact. The plugin never writes your index and never resolves a
 tension; the `dreaming-promote` skill is the procedure by which you do.
 
@@ -149,6 +155,11 @@ Every fallback is a `degraded:` line. The ones you will see:
 
 - `no engine - mechanical brief`: neither model answered; the brief is mechanical, promote nothing.
 - `map chunk N did not parse` / `engine error`: that slice produced nothing; the others still count.
+- `map chunk N returned no lessons and no state`: the reply parsed and was empty. One is a quiet
+  slice; several, or the newest one, means the model was not really reading (Haiku, 2026-09-23).
+- `newest slice yielded no state (unmapped or empty); brief is mechanical`: the resume state may
+  only come from the newest slice of the day, and that slice gave none, so the brief is built from
+  the last turns rather than from an older slice's articulate but stale state.
 - `map chunk N truncated` / `reduce reply truncated (provider cap)`: the reply hit the token cap;
   what was salvaged is a prefix, the brief is intact (state comes first in the contract).
 - `reduce input too large for the window; using the union of the map passes`: no cross-slice

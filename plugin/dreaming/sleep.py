@@ -57,9 +57,25 @@ def _session_dreams(root, session_id):
     return sorted(mine, key=lambda n: (n, os.path.getmtime(os.path.join(root, n))), reverse=True)
 
 
+def watermark_file(memory_path, session_id):
+    """<store>/dreams/.watermark-<session>.txt - the per-session watermark, kept OUTSIDE the dream
+    folder because promotion deletes the folder (measured 2026-09-23: the third sleep of a session
+    whose two earlier dreams had been promoted logged 'after (start)', re-extracted everything,
+    hit the cap and re-staged lessons already in the index). A file, not a directory, so the
+    dream listings - which count every subdirectory of dreams/ as a dream - never see it."""
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in (session_id or "nosession"))
+    return os.path.join(memory_path, DREAMS_DIRNAME, ".watermark-%s.txt" % safe)
+
+
 def last_watermark(memory_path, session_id):
-    """The uuid the newest dream of THIS session stopped at: the LAST watermark line of the
-    newest folder's sleep.log."""
+    """The uuid the newest sleep of THIS session stopped at: the watermark file first, else the
+    LAST watermark line of the newest surviving folder's sleep.log (stores written before 0.3.1)."""
+    wf = watermark_file(memory_path, session_id)
+    if os.path.isfile(wf):
+        with open(wf, "r", encoding="utf-8", errors="replace") as fh:
+            value = fh.read().strip()
+        if value:
+            return value
     root = os.path.join(memory_path, DREAMS_DIRNAME)
     for name in _session_dreams(root, session_id):
         log = os.path.join(root, name, "sleep.log")
@@ -122,7 +138,10 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
     _write(os.path.join(folder, "day.md"), day)
     log.write("extract | records %d | kept %d | bad lines %d | after %s" % (
         stats["records"], stats["kept"], stats["bad_lines"], watermark or "(start)"))
-    log.write("watermark: %s" % (stats["last_uuid"] or watermark or ""))
+    committed = stats["last_uuid"] or watermark or ""
+    log.write("watermark: %s" % committed)
+    if committed:
+        _write(watermark_file(out_root, session_id), committed)
     result["stages"]["extract"] = stats
     # A brief exists before the first engine call, so a sleep killed mid-map still re-seeds
     # something and the watermark it committed does not orphan its span (review finding).
@@ -152,6 +171,8 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
                         log.degrade("map chunk %d did not parse" % i)
                 elif m.get("truncated"):
                     log.degrade("map chunk %d truncated (provider cap); salvaged %d lesson(s)" % (i, len(m["lessons"])))
+                elif not m["lessons"] and not m["tensions"] and not m["state"].get("current_task"):
+                    log.degrade("map chunk %d returned no lessons and no state" % i)
                 maps.append(m)
                 log.write("map | chunk %d/%d | %d chars | lessons %d" % (i, len(chunks), len(chunk), len(m["lessons"])))
             # 3. reduce
@@ -180,6 +201,13 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
                     if not state.get("current_task") and last_map_state:
                         log.degrade("reduce state empty; using the last map slice's state")
                         state = last_map_state
+            # The resume state may only come from the NEWEST slice of the day. If that slice was
+            # never mapped (budget) or came back without a state, whatever the reduce or an older
+            # slice produced is stale by construction: the 2026-09-23 brief told a waking agent it
+            # was on work finished eight hours earlier. Crude and true beats articulate and stale.
+            if len(maps) < len(chunks) or not (maps and maps[-1]["state"].get("current_task")):
+                log.degrade("newest slice yielded no state (unmapped or empty); brief is mechanical")
+                state = sd.mechanical_state(turns)
             if not state or not state.get("current_task"):
                 state = sd.mechanical_state(turns)
     except Exception as exc:  # the hook must never die on an engine or a bug

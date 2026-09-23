@@ -44,6 +44,11 @@ def _fake_project(tmp):
     return project, memory
 
 
+def _dream_dirs(root):
+    """The dream FOLDERS under a dreams/ dir: the per-session watermark file lives beside them."""
+    return sorted(n for n in os.listdir(root) if os.path.isdir(os.path.join(root, n)))
+
+
 class SleepRunTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="dreaming-run-")
@@ -98,6 +103,51 @@ class SleepRunTests(unittest.TestCase):
         self.assertIn("a THIRD question", day2)
         self.assertNotIn("first question about GPUs", day2)
         self.assertNotEqual(first["folder"], second["folder"])
+
+    def test_watermark_survives_the_promotion_that_deletes_the_folder(self):
+        """Promotion deletes the dream folder. The watermark must not go with it, or the next
+        sleep re-dreams the whole session (measured 2026-09-23: third sleep logged 'after (start)',
+        hit the 400k cap and re-staged lessons already in the index)."""
+        first = self._run(now=datetime.datetime(2026, 9, 22, 12, 0))
+        shutil.rmtree(first["folder"])
+        with open(self.transcript, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(_rec("user", "us-0000-12", message={"role": "user", "content": "a THIRD question"})) + "\n")
+        second = self._run(now=datetime.datetime(2026, 9, 22, 13, 0))
+        day2 = _read(os.path.join(second["folder"], "day.md"))
+        self.assertIn("a THIRD question", day2)
+        self.assertNotIn("first question about GPUs", day2)
+        self.assertNotIn("after (start)", _read(os.path.join(second["folder"], "sleep.log")))
+
+    def test_a_map_slice_that_returns_nothing_is_named_in_the_log(self):
+        """An empty-but-valid map reply is a degraded slice, not a clean one (Haiku returned three
+        of them on 2026-09-23 and the log read as a full dream)."""
+        empty = json.dumps({"lessons": [], "state": {}, "tensions": []})
+        out = self._run(engine=self._engine(map_text=empty))
+        self.assertTrue(any("map chunk 1 returned no lessons and no state" in d for d in out["degraded"]), out["degraded"])
+
+    def test_a_state_from_an_older_slice_never_becomes_the_brief(self):
+        """The resume state may only come from the NEWEST slice. When that slice yields none, an
+        articulate state from an older slice is stale by construction; the mechanical state of the
+        last turns is crude but true (the 2026-09-23 brief was eight hours stale this way)."""
+        with open(self.transcript, "w", encoding="utf-8") as fh:
+            for i in range(20):
+                fh.write(json.dumps(_rec("user", "us-0001-%02d" % i, message={"role": "user", "content": "q" * 500})) + "\n")
+            fh.write(json.dumps(_rec("user", "us-0001-99", message={"role": "user", "content": "the LAST question, about the watermark"})) + "\n")
+        empty = json.dumps({"lessons": [], "state": {}, "tensions": []})
+        seen = []
+
+        def fn(system, user, *, max_tokens=4000, timeout=None):
+            if system is sd.REDUCE_SYSTEM:
+                return EngineResult(True, REDUCE_JSON, "fake", None)
+            seen.append(1)
+            return EngineResult(True, MAP_JSON if len(seen) == 1 else empty, "fake", None)
+
+        out = self._run(engine=fn, chunk_chars=2000)
+        self.assertGreater(len(seen), 1, "the fixture must produce several slices")
+        brief = _read(os.path.join(out["folder"], "brief.md"))
+        self.assertNotIn("GPU research", brief)
+        self.assertIn("the LAST question, about the watermark", brief)
+        self.assertTrue(any("newest slice" in d and "mechanical" in d for d in out["degraded"]), out["degraded"])
 
     def test_mechanical_run_when_no_engine(self):
         out = self._run(engine=None, engine_name="mechanical")
@@ -198,7 +248,7 @@ class SleepRunTests(unittest.TestCase):
 
         with self.assertRaises(SystemExit):
             self._run(engine=killer)
-        folder = os.path.join(self.memory, "dreams", os.listdir(os.path.join(self.memory, "dreams"))[0])
+        folder = os.path.join(self.memory, "dreams", _dream_dirs(os.path.join(self.memory, "dreams"))[0])
         self.assertIn("second question, about the 4090", _read(os.path.join(folder, "brief.md")))
 
     def test_truncated_and_errored_map_chunks_are_named_in_the_log(self):
@@ -232,7 +282,7 @@ class SleepRunTests(unittest.TestCase):
         rc, out = self._main("sleep", "--engine", "mechanical", "--agent", "Joule", "--hook-json", json.dumps(hook))
         self.assertEqual(rc, 0)
         self.assertFalse(os.path.exists(self.memory))
-        self.assertEqual(len(os.listdir(os.path.join(scratch, "dreaming", "dreams"))), 1)
+        self.assertEqual(len(_dream_dirs(os.path.join(scratch, "dreaming", "dreams"))), 1)
         self.assertIn("missing", out)
 
     def test_hook_sleep_exits_zero_on_internal_exception(self):

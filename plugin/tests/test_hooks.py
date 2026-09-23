@@ -15,6 +15,11 @@ _NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 SCRIPTS = ("precompact_sleep.py", "sessionstart_reseed.py", "sessionstart_notice.py", "sessionend_spawn.py")
 
 
+def _dream_dirs(root):
+    """The dream FOLDERS under a dreams/ dir: the per-session watermark file lives beside them."""
+    return sorted(n for n in os.listdir(root) if os.path.isdir(os.path.join(root, n)))
+
+
 class HookScriptTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="dreaming-hooks-")
@@ -73,7 +78,7 @@ class HookScriptTests(unittest.TestCase):
         self.assertNotIn("sleep failed", out)
         store = os.path.join(self.tmp, "stores", "Joule", "dreams")
         self.assertTrue(os.path.isdir(store), out)
-        self.assertEqual(len(os.listdir(store)), 1)
+        self.assertEqual(len(_dream_dirs(store)), 1)
         # and enabled:false in that same non-ASCII project is honoured
         with open(os.path.join(project, ".dreaming.json"), "w", encoding="utf-8") as fh:
             json.dump({"enabled": False}, fh)
@@ -81,7 +86,7 @@ class HookScriptTests(unittest.TestCase):
                               capture_output=True, timeout=120, env=env, cwd=self.tmp, creationflags=_NO_WINDOW)
         self.assertEqual(done.returncode, 0)
         self.assertEqual(done.stdout.decode("utf-8", "replace").strip(), "")
-        self.assertEqual(len(os.listdir(store)), 1)
+        self.assertEqual(len(_dream_dirs(store)), 1)
 
     def test_disabled_env_makes_every_hook_silent(self):
         for script in SCRIPTS:
@@ -111,11 +116,11 @@ class HookScriptTests(unittest.TestCase):
         store = os.path.join(self.tmp, "stores", "Joule", "dreams")
         deadline = time.time() + 60
         while time.time() < deadline:
-            if os.path.isdir(store) and any(os.path.isfile(os.path.join(store, d, "brief.md")) for d in os.listdir(store)):
+            if os.path.isdir(store) and any(os.path.isfile(os.path.join(store, d, "brief.md")) for d in _dream_dirs(store)):
                 break
             time.sleep(0.5)
         self.assertTrue(os.path.isdir(store), "detached child never wrote a dream")
-        folders = os.listdir(store)
+        folders = _dream_dirs(store)
         self.assertEqual(len(folders), 1, folders)
         with open(os.path.join(store, folders[0], "sleep.log"), "r", encoding="utf-8") as fh:
             self.assertIn("write |", fh.read())

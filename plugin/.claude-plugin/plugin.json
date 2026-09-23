@@ -2,7 +2,7 @@
   "name": "dreaming",
   "displayName": "Dreaming",
   "description": "Sleep at compaction: a blocking PreCompact hook distils the session transcript into candidate lessons, a resume brief and held tensions, stages them in the agent's memory store, and re-seeds the fresh context after compaction. Local model first (any OpenAI-compatible server), claude -p second, a mechanical brief last. The plugin never writes an index and never resolves a tension: the mind promotes at wake, with the dreaming-promote skill.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": { "name": "Ame No Murakumo" },
   "license": "MIT",
   "keywords": ["memory", "compaction", "consolidation", "agent-memory", "hooks", "sleep", "local-llm"]

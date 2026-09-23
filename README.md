@@ -40,6 +40,10 @@ under that name (on Windows, not the Store stub).
   sleep.log         engine, timings, every "degraded:" line, the watermark for the next sleep
 ```
 
+Beside the folders, `<store>/dreams/.watermark-<session>.txt` records where this session's last
+sleep stopped. Promotion deletes the folder; the file stays, so the next sleep continues from it
+instead of re-dreaming the whole session.
+
 ## The one design rule
 
 **Staging only. The mind promotes.** The plugin never writes your index and never resolves a

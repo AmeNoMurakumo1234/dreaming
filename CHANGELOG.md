@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.1 - 2026-09-23
+
+Two defects exposed by the first live sleep on the `claude` engine (llama down, Haiku dreamed;
+7 slices, 23 lessons, 3 tensions, 319 s), both fixed test-first (3 tests added, 121 pass).
+
+- The watermark no longer dies with the promoted folder. It lived only in the dream folder's
+  sleep.log, and promotion deletes the folder, so a session whose earlier dreams had been promoted
+  slept from `(start)` again: the whole transcript re-extracted, the 400k cap hit, lessons already
+  in the index re-staged. Every sleep now also writes `<store>/dreams/.watermark-<session>.txt`
+  (a file, so the dream listings never count it), and `last_watermark` reads it first, falling
+  back to surviving folders for stores written before this release.
+- A map slice that parses but returns no lessons and no state is now a degraded line
+  (`map chunk N returned no lessons and no state`). Haiku returned three such slices, the newest
+  three, and the log read as a full dream.
+- The resume state may only come from the NEWEST slice. When that slice was never mapped (budget)
+  or came back without a state, the reduce's state was built from an older slice and was stale by
+  construction: the live brief told a waking agent it was on work finished eight hours earlier,
+  naming files that had been deleted. The sleep now writes the mechanical state of the last turns
+  instead and says so (`newest slice yielded no state (unmapped or empty); brief is mechanical`).
+  Crude and true beats articulate and stale.
+
 ## 0.3.0 - 2026-09-23
 
 Sleep at session end, so a short session that never compacts still dreams.
