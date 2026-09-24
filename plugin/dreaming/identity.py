@@ -57,13 +57,17 @@ def _candidate(name, source):
     return ok, source
 
 
-def agent_candidates(cfg, cwd, transcript, env, run=subprocess.run):
-    """Every source's name, in the configured order, as (name, source). `default` closes the list."""
+def agent_candidates(cfg, cwd, transcript, env, run=subprocess.run, task_hint=None):
+    """Every source's name, in the configured order, as (name, source). `default` closes the list.
+    `task_hint` is a scheduled-task name the caller already holds (the first prompt carries it);
+    it stands in for the transcript read, which at SessionStart(startup) finds nothing (1999)."""
     env = os.environ if env is None else env
     configured = str(cfg.get("agent") or "auto").strip()
     out = []
     for source in cfg.get("identity_order") or ["scheduled_task", "env", "config", "transcript", "git", "default"]:
-        if source == "scheduled_task" and transcript and os.path.isfile(transcript):
+        if source == "scheduled_task" and task_hint:
+            out.append(_candidate(task_hint, "scheduled_task"))
+        elif source == "scheduled_task" and transcript and os.path.isfile(transcript):
             try:
                 name = extract.scheduled_task_name(transcript) or ""
             except Exception:
@@ -109,8 +113,8 @@ def scratch_root(hook, cfg=None):
     return root
 
 
-def resolve(cfg, cwd, transcript=None, env=None, run=subprocess.run, hook=None):
-    candidates = agent_candidates(cfg, cwd, transcript, env, run)
+def resolve(cfg, cwd, transcript=None, env=None, run=subprocess.run, hook=None, task_hint=None):
+    candidates = agent_candidates(cfg, cwd, transcript, env, run, task_hint=task_hint)
     name, source = candidates[0]
     agents = cfg.get("agents") or {}
     if agents:

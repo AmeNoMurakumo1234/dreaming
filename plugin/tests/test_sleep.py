@@ -16,6 +16,7 @@ import tempfile
 import time
 import unittest
 from contextlib import redirect_stdout
+from unittest import mock
 
 NL = chr(10)
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -447,6 +448,89 @@ class SleepRunTests(unittest.TestCase):
                 os.environ["DREAMING_AGENT"] = env_before
         self.assertEqual(rc, 0)
         self.assertIn(os.path.join(self.memory, "dreams"), out)
+
+
+class FirstPromptNoticeTests(unittest.TestCase):
+    """Issue 1999 (quantum-concepts board, 2026-09-24): SessionStart(startup) fires ~250 ms BEFORE
+    the transcript line that carries <scheduled-task name=...> is written. The scheduled_task source
+    therefore read nothing, resolution fell through to git user.name - always Joule in a shared
+    clone - and every scheduled specialist was told to promote and DELETE Joule's dreams. The
+    notice now runs at the FIRST UserPromptSubmit, whose input carries the prompt, i.e. the tag
+    itself; SessionStart(startup) prints nothing."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="dreaming-prompt-")
+        self.home = os.path.join(self.tmp, "home")
+        os.makedirs(self.home)
+        self.project, self.memory = _fake_project(self.tmp)
+        self.lemma = os.path.join(self.project, "team", "skill-maintainer", "memory")
+        os.makedirs(self.lemma)
+        with open(os.path.join(self.project, ".dreaming.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agents": {"Joule": "team/worker/memory", "worker-agent": "team/worker/memory",
+                                  "skill-maintainer": "team/skill-maintainer/memory"},
+                       "reseed_on_startup": True}, fh)
+        self.transcript = write_fixture(os.path.join(self.tmp, "t.jsonl"))
+        # Joule's store holds a dream, written under HER task, so a leak is visible and so is a
+        # carry-over.
+        sl.run_sleep(self.transcript, agent="Joule", session_id="sess-0001", out_root=self.memory,
+                     engine=None, engine_name="mechanical", task="worker-agent",
+                     now=datetime.datetime.now())
+        # At startup the transcript does not yet hold the first user turn.
+        self.early = os.path.join(self.tmp, "early.jsonl")
+        open(self.early, "w").close()
+        self._git = mock.patch.object(identity, "_git_user_name", lambda cwd, run: "Joule")
+        self._git.start()
+
+    def tearDown(self):
+        self._git.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _notice(self, **hook):
+        base = {"session_id": "s-1", "cwd": self.project, "transcript_path": self.early,
+                "scratchpad_dir": os.path.join(self.tmp, "scratch")}
+        base.update(hook)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["--project", self.project, "--home", self.home, "notice", "--hook-json", json.dumps(base)])
+        self.assertEqual(rc, 0)
+        out = buf.getvalue().strip()
+        return json.loads(out)["hookSpecificOutput"] if out else None
+
+    def _prompt(self, text, **hook):
+        return self._notice(hook_event_name="UserPromptSubmit", prompt=text, **hook)
+
+    def _lemma_dream(self):
+        sl.run_sleep(self.transcript, agent="skill-maintainer", session_id="sess-0001", out_root=self.lemma,
+                     engine=None, engine_name="mechanical", task="skill-maintainer",
+                     now=datetime.datetime.now())
+
+    def test_startup_never_names_a_store_guessed_from_git(self):
+        self.assertIsNone(self._notice(hook_event_name="SessionStart", source="startup"),
+                          "a startup notice can only have come from the git fallback")
+
+    def test_a_scheduled_first_prompt_names_only_its_own_store(self):
+        tag = '<scheduled-task name="skill-maintainer" file="x/SKILL.md"> run'
+        self.assertIsNone(self._prompt(tag), "Lemma's store is empty; Joule's must not be offered")
+        self._lemma_dream()
+        out = self._prompt(tag, session_id="s-2")
+        self.assertEqual(out["hookEventName"], "UserPromptSubmit")
+        self.assertIn(self.lemma, out["additionalContext"])
+        self.assertNotIn(self.memory, out["additionalContext"])
+
+    def test_an_unmapped_scheduled_task_prints_nothing_rather_than_the_git_name(self):
+        self.assertIsNone(self._prompt('<scheduled-task name="some-new-routine"> go'),
+                          "a known scheduled run whose lane is unmapped must not fall through to git")
+
+    def test_an_interactive_first_prompt_resolves_as_before_and_only_once(self):
+        out = self._prompt("hello")
+        self.assertIn(self.memory, out["additionalContext"])
+        self.assertNotIn("Carry-over", out["additionalContext"], "interactive sessions never get a brief")
+        self.assertIsNone(self._prompt("and a second prompt"), "the notice is once per session")
+
+    def test_a_scheduled_run_receives_its_carry_over_at_its_first_prompt(self):
+        out = self._prompt('<scheduled-task name="worker-agent" file="x"> wake')
+        self.assertIn("Carry-over from your previous run", out["additionalContext"])
+        self.assertIn("task worker-agent", out["additionalContext"])
 
 
 class DefaultsAgreeTests(unittest.TestCase):

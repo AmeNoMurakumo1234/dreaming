@@ -4,7 +4,7 @@
     python -m dreaming.cli sleep      # PreCompact hook, hook JSON on stdin; always exit 0
     python -m dreaming.cli sessionend # SessionEnd hook; spawns a detached `sleep` child; always exit 0
     python -m dreaming.cli reseed     # SessionStart(compact) hook; prints additionalContext JSON
-    python -m dreaming.cli notice     # SessionStart(startup|resume) hook; one line if dreams await
+    python -m dreaming.cli notice     # SessionStart(resume) + first UserPromptSubmit; one line if dreams await
     python -m dreaming.cli dream --transcript P [--agent A] [--engine E] [--dry-run]
     python -m dreaming.cli list [--agent A]
     python -m dreaming.cli config     # the effective config and where each layer came from
@@ -159,8 +159,8 @@ def cmd_sessionend(args):
     return 0
 
 
-def _hook_context(text):
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}})
+def _hook_context(text, event="SessionStart"):
+    return json.dumps({"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}})
 
 
 def cmd_reseed(args):
@@ -192,19 +192,59 @@ def cmd_reseed(args):
     return 0
 
 
+# A scheduled run's identity is only trusted from these sources; a guess from the transcript's
+# session title, git user.name or `default` names whoever happens to own the clone (1999).
+_TRUSTED_FOR_A_TASK = ("scheduled_task", "env", "config")
+
+
+def _first_prompt_of_session(hook, cfg):
+    """True once per session_id: the notice belongs on the FIRST prompt only. A session with no id
+    is never announced, because without one every prompt would look like the first."""
+    sid = identity.safe_name(hook.get("session_id"))
+    if not sid:
+        return False
+    seen = os.path.join(identity.scratch_root(hook, cfg), "notice-seen")
+    os.makedirs(seen, exist_ok=True)
+    marker = os.path.join(seen, sid)
+    try:
+        with open(marker, "x", encoding="utf-8") as fh:
+            fh.write("1")
+    except FileExistsError:
+        return False
+    return True
+
+
 def cmd_notice(args):
-    """SessionStart(startup|resume) entry. One line if dreams await; ALWAYS returns 0."""
+    """SessionStart(resume) and first-UserPromptSubmit entry. One line if dreams await; ALWAYS 0.
+
+    Issue 1999: SessionStart(startup) fires ~250 ms BEFORE the transcript line carrying the
+    <scheduled-task name=...> tag is written, so identity fell through to git user.name (one name
+    per shared clone) and every scheduled specialist was handed another mind's store with an
+    instruction to delete its dreams. So startup prints NOTHING, and the notice runs at the first
+    prompt instead, whose own text IS the tag."""
     try:
         hook = _read_hook_json(args)
+        event = str(hook.get("hook_event_name") or "SessionStart")
+        if event == "SessionStart" and str(hook.get("source") or "") == "startup":
+            return 0
+        prompt_mode = event == "UserPromptSubmit" or "prompt" in hook
         cfg, cwd, env = _load(args, hook)
         if not cfg.get("enabled", True):
             return 0
-        res = identity.resolve(cfg, cwd, transcript=hook.get("transcript_path"), env=env, hook=hook)
+        if prompt_mode:
+            if not _first_prompt_of_session(hook, cfg):
+                return 0
+            task = sx.task_in_text(hook.get("prompt")) or ""
+        else:
+            task = _task_of(hook.get("transcript_path"))
+        res = identity.resolve(cfg, cwd, transcript=hook.get("transcript_path"), env=env, hook=hook,
+                               task_hint=task or None)
         if res.scratch:
+            return 0
+        if task and res.source not in _TRUSTED_FOR_A_TASK:
             return 0
         dreams = sl.dreams_awaiting(res.store, stale_days=int(cfg.get("stale_days") or 14))
         lines = []
-        task = _task_of(hook.get("transcript_path"))
         # Scheduled runs only: an interactive session has no task, so there is no key to match a
         # brief on, and two interactive sessions of one agent would hand each other their briefs.
         if cfg.get("reseed_on_startup") and dreams and task:
@@ -227,7 +267,7 @@ def cmd_notice(args):
                     d["name"], d["lessons"], d["tensions"], "  STALE" if d["stale"] else ""))
         if not lines:
             return 0
-        print(_hook_context("\n".join(lines)))
+        print(_hook_context(chr(10).join(lines),"UserPromptSubmit" if prompt_mode else "SessionStart"))
     except Exception as exc:
         print("dreaming: notice skipped: %s" % exc, file=sys.stderr)
     return 0

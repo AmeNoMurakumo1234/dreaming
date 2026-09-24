@@ -12,7 +12,8 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOOKS = os.path.abspath(os.path.join(HERE, "..", "hooks"))
 _NO_WINDOW = 0x08000000 if os.name == "nt" else 0
-SCRIPTS = ("precompact_sleep.py", "sessionstart_reseed.py", "sessionstart_notice.py", "sessionend_spawn.py")
+SCRIPTS = ("precompact_sleep.py", "sessionstart_reseed.py", "sessionstart_notice.py", "sessionend_spawn.py",
+           "userpromptsubmit_notice.py")
 
 
 def _dream_dirs(root):
@@ -125,7 +126,7 @@ class HookScriptTests(unittest.TestCase):
         with open(os.path.join(store, folders[0], "sleep.log"), "r", encoding="utf-8") as fh:
             self.assertIn("write |", fh.read())
 
-    def test_hooks_json_wires_the_four_events(self):
+    def test_hooks_json_wires_the_five_events(self):
         with open(os.path.join(HOOKS, "hooks.json"), "r", encoding="utf-8") as fh:
             spec = json.load(fh)["hooks"]
         self.assertIn("PreCompact", spec)
@@ -137,7 +138,13 @@ class HookScriptTests(unittest.TestCase):
         self.assertNotIn("matcher", spec["SessionEnd"][0])
         matchers = [entry.get("matcher") for entry in spec["SessionStart"]]
         self.assertIn("compact", matchers)
-        self.assertTrue(any("startup" in (m or "") for m in matchers))
+        self.assertTrue(any("resume" in (m or "") for m in matchers))
+        # 1999: startup fires before the scheduled-task tag is in the transcript, so a notice
+        # there can only name a GUESSED mind. The first prompt carries the tag instead.
+        self.assertFalse(any("startup" in (m or "") for m in matchers), matchers)
+        self.assertIn("UserPromptSubmit", spec)
+        self.assertNotIn("matcher", spec["UserPromptSubmit"][0])
+        self.assertIn("userpromptsubmit_notice.py", spec["UserPromptSubmit"][0]["hooks"][0]["command"])
         for event in spec.values():
             for entry in event:
                 for h in entry["hooks"]:

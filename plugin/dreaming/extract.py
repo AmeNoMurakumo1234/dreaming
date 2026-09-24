@@ -130,6 +130,12 @@ def transcript_agent_name(path):
 _TASK_TAG = re.compile(r'<scheduled-task[^>]*name="([^"]+)"')
 
 
+def task_in_text(text):
+    """The `name` of a <scheduled-task ...> tag in one piece of text (a prompt), or None."""
+    m = _TASK_TAG.search(str(text or ""))
+    return m.group(1).strip() if m else None
+
+
 def scheduled_task_name(path):
     """The `name` of a <scheduled-task ...> tag in the transcript's FIRST user turn, or None.
     A scheduled run's first turn carries the task's name on every run - the lane, where git

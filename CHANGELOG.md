@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.1 - 2026-09-24
+
+A privacy fix. In a shared clone every scheduled specialist was told, at startup, to promote and
+DELETE another mind's dreams (quantum-concepts board 1999, found by two routines independently).
+
+- `SessionStart(startup)` fires about 250 ms BEFORE the transcript line carrying
+  `<scheduled-task name=...>` is written, so the `scheduled_task` source read nothing and the
+  identity fell through to `git config user.name` - one name per clone. The 0.4.0 tag reader was
+  right for sleep (PreCompact and SessionEnd read a finished transcript) and could never work for
+  the startup notice. Measured from transcript timestamps, not reasoned.
+- The notice now runs on the FIRST `UserPromptSubmit` of a session (a marker per session id in
+  scratch), whose input carries the prompt - which IS the tag. `SessionStart(resume)` keeps it;
+  `startup` is unwired, and `cmd_notice` refuses a startup payload anyway, for installs whose
+  hooks.json still routes it.
+- When a scheduled task is known, a store is named only if the identity came from the task, the
+  env or the config. An unmapped routine gets NO notice rather than the git name's store: a
+  notice naming another mind's store is worse than none.
+- The same cause made `reseed_on_startup` unreachable on every scheduled startup (the task key
+  was empty). The carry-over now keys on the prompt's task and fires.
+- 5 tests, all red against 0.5.0 first; 144 pass.
+
 ## 0.5.0 - 2026-09-23
 
 Four asks from a field report on 0.4.0's first promotion pass (20 lessons, 1 kept: 11 restated

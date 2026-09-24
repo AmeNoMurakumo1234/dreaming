@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""SessionStart(resume) hook: one line if dreams await promotion. Never exits non-zero.
-Startup is NOT wired here: it fires before the scheduled-task tag exists (1999) - see
-userpromptsubmit_notice.py."""
+"""UserPromptSubmit hook: on the FIRST prompt of a session, one line if dreams await promotion.
+The prompt carries the <scheduled-task> tag, which SessionStart(startup) cannot see yet (1999).
+Never exits non-zero."""
 import os
 import sys
 

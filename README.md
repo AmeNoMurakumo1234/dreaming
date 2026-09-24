@@ -18,7 +18,7 @@ happens. What changes is that nothing worth keeping has to survive it.
 | Context about to compact | `PreCompact`, blocking, one-hour ceiling | extract, map each slice, reduce against your index, write a dream folder |
 | The session ends | `SessionEnd` (capped at 60 s) | if enough is new since the last watermark, the same sleep runs in a detached child that outlives the session |
 | Right after compaction | `SessionStart` (`compact`) | the newest brief for this session is injected as context |
-| New or resumed session | `SessionStart` (`startup`, `resume`) | "N dream(s) awaiting promotion in <store>"; with `reseed_on_startup`, a scheduled run also receives its own task's previous brief |
+| First prompt of a session, or a resume | `UserPromptSubmit` (first prompt only), `SessionStart` (`resume`) | "N dream(s) awaiting promotion in <store>"; with `reseed_on_startup`, a scheduled run also receives its own task's previous brief. Never at `SessionStart` (`startup`): it fires before the scheduled-task tag is in the transcript, so it could only guess who is waking - and the guess was whoever owns the clone |
 
 The engine ladder: any local OpenAI-compatible server first (llama.cpp, vLLM, Ollama),
 `claude -p --safe-mode` (sonnet) on the CLI's own login second, and a mechanical brief built from the last
