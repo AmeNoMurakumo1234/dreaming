@@ -15,11 +15,13 @@ DEFAULTS = {
     "store_root": "~/.dreaming/stores",
     "agent": "auto",
     "agents": {},
-    "identity_order": ["env", "config", "transcript", "git", "default"],
+    "identity_order": ["scheduled_task", "env", "config", "transcript", "git", "default"],
     "engines": ["openai_compatible", "claude", "mechanical"],
     "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "",
                           "api_key_env": "DREAMING_API_KEY", "model": "local", "timeout": 900},
-    "claude": {"model": "haiku", "timeout": 900},
+    # sonnet, not haiku: haiku returned empty-but-valid slices on short scheduled runs five times
+    # in one day (2026-09-23); the fallback runs rarely and reads better than it runs fast.
+    "claude": {"model": "sonnet", "timeout": 900},
     "chunk_chars": 60000,
     "cap_chars": 400000,
     # Every engine call gets the remaining budget as its timeout, so a sleep never crosses the
@@ -36,6 +38,11 @@ DEFAULTS = {
     # session (a `claude -p "Reply OK"`, a two-line resume) has nothing to dream and spawns nothing.
     "sessionend": {"enabled": True, "min_chars": 20000},
     "include_thinking": False,
+    # A routine is a fresh session every run, so SessionStart(compact) never reaches it. With
+    # reseed_on_startup the startup notice also injects the newest brief in the store written
+    # under the SAME scheduled-task name, once, while it is younger than reseed_max_age_hours.
+    "reseed_on_startup": False,
+    "reseed_max_age_hours": 48,
     "index_file": "MEMORY.md",
     "stale_days": 14,
 }

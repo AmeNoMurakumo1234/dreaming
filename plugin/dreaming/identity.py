@@ -62,8 +62,15 @@ def agent_candidates(cfg, cwd, transcript, env, run=subprocess.run):
     env = os.environ if env is None else env
     configured = str(cfg.get("agent") or "auto").strip()
     out = []
-    for source in cfg.get("identity_order") or ["env", "config", "transcript", "git", "default"]:
-        if source == "env":
+    for source in cfg.get("identity_order") or ["scheduled_task", "env", "config", "transcript", "git", "default"]:
+        if source == "scheduled_task" and transcript and os.path.isfile(transcript):
+            try:
+                name = extract.scheduled_task_name(transcript) or ""
+            except Exception:
+                name = ""
+            if name:
+                out.append(_candidate(name, "scheduled_task"))
+        elif source == "env":
             name = str(env.get("DREAMING_AGENT") or "").strip()
             if name:
                 out.append(_candidate(name, "env"))

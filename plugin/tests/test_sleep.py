@@ -13,6 +13,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 
@@ -218,6 +219,62 @@ class SleepRunTests(unittest.TestCase):
         out = self._run(index_text="")
         self.assertEqual(out["tensions"], 0)
         self.assertTrue(any("no index; tensions not filed" in d for d in out["degraded"]), out["degraded"])
+
+    def test_notice_carries_over_the_newest_brief_on_startup_when_asked(self):
+        """A routine is a fresh session every run, so SessionStart(compact) never reaches it.
+        With reseed_on_startup the notice injects the store's newest brief once, under a header
+        that says whose dream it was, and only while it is younger than reseed_max_age_hours.
+        SCHEDULED RUNS ONLY: an interactive session has no task, so there is no key to match a
+        brief on, and two interactive sessions of one agent would hand each other their briefs."""
+        from test_identity import write_scheduled_fixture
+        sched = write_scheduled_fixture(os.path.join(self.tmp, "sched.jsonl"))      # task pm-agent
+        first = self._run(task="pm-agent", now=datetime.datetime(2026, 9, 22, 12, 0))
+        rc, out = self._main("notice", "--hook-json", json.dumps({"session_id": "run-two", "transcript_path": sched}))
+        self.assertNotIn("Carry-over", out, "off by default")
+        with open(os.path.join(self.project, ".dreaming.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agents": {"Joule": "team/worker/memory", "pm-agent": "team/worker/memory"}, "reseed_on_startup": True}, fh)
+        rc, out = self._main("notice", "--hook-json", json.dumps({"session_id": "run-two", "transcript_path": sched}))
+        self.assertEqual(rc, 0)
+        self.assertIn("Carry-over from your previous run", out)
+        self.assertIn("sess-0001", out)
+        self.assertIn("GPU research", out)
+        rc, out = self._main("notice", "--hook-json", json.dumps({"session_id": "interactive", "transcript_path": self.transcript}))
+        self.assertNotIn("Carry-over", out, "an interactive session has no task and never receives a carry-over")
+        self.assertIn("awaiting promotion", out)
+        old = time.time() - 3 * 86400
+        os.utime(first["folder"], (old, old))
+        rc, out = self._main("notice", "--hook-json", json.dumps({"session_id": "run-two", "transcript_path": sched}))
+        self.assertNotIn("Carry-over", out, "older than reseed_max_age_hours")
+        self.assertIn("awaiting promotion", out)
+
+    def test_list_all_enumerates_every_store(self):
+        self._run()
+        other = os.path.join(self.home, ".dreaming", "stores", "other", "dreams", "20260101-000000-abcdef12", "lessons")
+        os.makedirs(other)
+        with open(os.path.join(other, "x.md"), "w", encoding="utf-8") as fh:
+            fh.write("# x")
+        rc, out = self._main("list", "--all")
+        self.assertEqual(rc, 0)
+        self.assertIn("Joule", out)
+        self.assertIn("other", out)
+        self.assertIn("1 dream(s)", out)
+
+    def test_carry_over_matches_the_routine_by_task_name(self):
+        """Two routines can share one store (a morning and an evening run of the same mind), so
+        the carry-over is keyed by the scheduled task, not by the store: a run receives only the
+        newest brief written under its own task name."""
+        from test_identity import write_scheduled_fixture
+        sched = write_scheduled_fixture(os.path.join(self.tmp, "sched.jsonl"))      # task pm-agent
+        with open(os.path.join(self.project, ".dreaming.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agents": {"pm-agent": "team/worker/memory", "Joule": "team/worker/memory"},
+                       "reseed_on_startup": True}, fh)
+        self._run(task="qa-tester", now=datetime.datetime(2026, 9, 22, 12, 0))
+        rc, out = self._main("notice", "--hook-json", json.dumps({"session_id": "run-two", "transcript_path": sched}))
+        self.assertNotIn("Carry-over", out, "another routine's brief must not carry over")
+        self._run(task="pm-agent", now=datetime.datetime(2026, 9, 22, 13, 0))
+        rc, out = self._main("notice", "--hook-json", json.dumps({"session_id": "run-two", "transcript_path": sched}))
+        self.assertIn("Carry-over from your previous run", out)
+        self.assertIn("task pm-agent", out)
 
     def test_truncated_reduce_is_named_in_the_log(self):
         full = json.loads(REDUCE_JSON)

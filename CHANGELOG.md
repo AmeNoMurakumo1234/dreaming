@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 - 2026-09-23
+
+Dreams from ROUTINES: a scheduled run dreams into its own lane and its next run picks the dream
+up. From a field report on scheduled runs; 8 tests added, 134 pass.
+
+- New identity source `scheduled_task`, FIRST in the default `identity_order`: the `name` of the
+  `<scheduled-task ...>` tag in the transcript's first user turn. That is the lane's name on every
+  run, where `git user.name` and a configured `agent` are per box and the agent-name record is
+  the session title. It is a candidate like any other: with an `agents` map the first MAPPED
+  name still wins (so map the task names); without a map the task gets `store_root/<task>`.
+- The brief's header stamps the task (`| task <name>`), and `sleep.log` names it.
+- `reseed_on_startup` (default off) with `reseed_max_age_hours` (48): the startup notice also
+  injects the store's newest brief written under the SAME task name - once, under a carry-over
+  header that names the dream and the task, with a trailer saying it is what the last run LEFT
+  and is never promoted. Keyed by task, not store, so two routines of one mind sharing a store
+  never receive each other's brief. SCHEDULED RUNS ONLY: an interactive session has no task, so
+  there is no key to match a brief on, and two interactive sessions of one agent would hand each
+  other their briefs; they never receive a carry-over, whatever the option says.
+- `list --all`: every mapped store and every child of `store_root` that holds dreams, with the
+  dream and stale counts each, for the interactive checkup that promotes across lanes.
+- The `claude` fallback defaults to `sonnet` (was `haiku`): haiku returned empty-but-valid
+  slices on short scheduled runs five times in one day. Measured on this login: the sonnet
+  smoke answers in under five seconds.
+
 ## 0.3.2 - 2026-09-23
 
 Three defects from a field report on the first PreCompact sleep of a long interactive session

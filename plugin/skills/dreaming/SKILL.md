@@ -19,7 +19,7 @@ changes is that nothing worth keeping has to survive it.
 | Context about to compact (manual or automatic) | `PreCompact`, blocking, one-hour ceiling | extract the transcript, map each slice, reduce against your index, write a dream folder |
 | The session ends (exit, `/clear`, a `claude -p` run finishing) | `SessionEnd`, capped at 60 s by Claude Code | decide in under a second whether enough transcript is new since the last watermark (`sessionend.min_chars`), then hand the same sleep to a DETACHED windowless child that outlives the session; its dream is reported by the next start notice |
 | Right after compaction | `SessionStart` with the `compact` matcher | re-inject the newest brief for this session as context |
-| A new or resumed session | `SessionStart` with `startup` or `resume` | one line: how many dreams await promotion, and where |
+| A new or resumed session | `SessionStart` with `startup` or `resume` | one line: how many dreams await promotion, and where; with `reseed_on_startup`, the CARRY-OVER first (below) |
 
 The session is genuinely asleep during the first one. A full transcript of a long day through a
 local 27B model takes two to three minutes; the ceiling is an hour and a wall-clock budget inside
@@ -61,13 +61,14 @@ variables `DREAMING_AGENT`, `DREAMING_DISABLED=1`, `DREAMING_STORE_ROOT`, `DREAM
   "store_root": "~/.dreaming/stores",
   "agent": "auto",
   "agents": {},
-  "identity_order": ["env", "config", "transcript", "git", "default"],
+  "identity_order": ["scheduled_task", "env", "config", "transcript", "git", "default"],
   "engines": ["openai_compatible", "claude", "mechanical"],
   "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "", "api_key_env": "DREAMING_API_KEY",
                         "model": "local", "timeout": 900, "max_tokens": 0, "label": ""},
-  "claude": {"model": "haiku", "timeout": 900},
+  "claude": {"model": "sonnet", "timeout": 900},
   "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 900,
   "sessionend": {"enabled": true, "min_chars": 20000},
+  "reseed_on_startup": false, "reseed_max_age_hours": 48,
   "result_head": 400, "include_thinking": false,
   "index_file": "MEMORY.md", "stale_days": 14
 }
@@ -107,7 +108,9 @@ worked) or point at a server that does not split.
 
 ## Identity and store rules
 
-1. Agent name, in `identity_order`: `env` (`DREAMING_AGENT`), `config` (a configured `agent`
+1. Agent name, in `identity_order`: `scheduled_task` (the `name` of the `<scheduled-task ...>` tag
+   in the transcript's FIRST user turn - a scheduled run's lane, on every run; a tag quoted in a
+   later turn is not an identity), `env` (`DREAMING_AGENT`), `config` (a configured `agent`
    that is not `auto`), `transcript` (the session's own agent-name record), `git` (`git config
    user.name` in the project), `default`. The name becomes a path component, so separators,
    `..`, reserved characters and absurd lengths fall back to `default` with the source marked
@@ -129,6 +132,28 @@ worked) or point at a server that does not split.
    for a lane whose real index lives outside its store. Without an index no tension is filed,
    and with one a tension must name an entry in it (0.3.2).
 
+## Routines: a lane's dream, picked up by the lane
+
+A scheduled run is a fresh session every time, so the compaction re-seed (which matches the
+session id) never reaches it. Three pieces make a routine's dream its own:
+
+- Its identity is the task name from the `<scheduled-task ...>` tag (rule 1 above), so the dream
+  lands in that task's store: map the task names in `agents` (`"pm-agent": "team/pm/memory"`),
+  or without a map it is `store_root/<task>`. The brief's header stamps the task
+  (`| task pm-agent`) and so does `sleep.log`.
+- `reseed_on_startup: true` makes the startup notice inject the store's newest brief written
+  under the SAME task name - once, under `# Carry-over from your previous run (dream <name>,
+  task <task>)`, with a trailer saying it is what the last run LEFT and must be verified before
+  acting on it. Keyed by TASK, not store: two routines of one mind may share a store (a morning
+  and an evening run) and never receive each other's brief. Only while the dream is younger than
+  `reseed_max_age_hours`. SCHEDULED RUNS ONLY: an interactive session has no task, so there is
+  no key to match a brief on, and two interactive sessions of one agent would hand each other
+  their briefs; it never receives a carry-over, whatever the option says. Its compaction re-seed
+  matches on the SESSION ID and is untouched.
+- Promotion is still the mind's job, not the routine's. `python -m dreaming.cli list --all`
+  lists every mapped store and every child of `store_root` that holds dreams, with counts, so
+  an interactive checkup can see every lane's dreams without walking directories.
+
 ## Engines
 
 Tried in the configured order; the first that answers wins:
@@ -138,7 +163,8 @@ Tried in the configured order; the first that answers wins:
   has none) and then a one-token authenticated completion, so a server that is up but rejects
   your key is treated as down. With several endpoints the engine is logged as
   `openai_compatible[<label>]`; with one it stays `openai_compatible`.
-- `claude` - `claude -p --safe-mode` on the CLI's own login. Safe mode disables CLAUDE.md, skills,
+- `claude` - `claude -p --safe-mode --model sonnet` on the CLI's own login (`claude.model`; sonnet
+  since 0.4.0, because haiku returned empty slices on short scheduled runs). Safe mode disables CLAUDE.md, skills,
   plugins, hooks and MCP inside the nested run on any machine (this plugin included: a nested run
   must never sleep) and keeps the OAuth login (measured 2026-09-22). The prompt goes on stdin.
 - `mechanical` - no model: the brief is built from the last turns, no lessons. Always available.

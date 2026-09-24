@@ -59,7 +59,7 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(identity.agent_name(cfg, self.project, None, {"DREAMING_AGENT": "Env"}, _git("Git"))[0], "Env")
         # Review finding: a reordered identity_order without "env" used to discard the configured
         # agent silently. It is now the explicit "config" step, present in the default order.
-        self.assertEqual(config.DEFAULTS["identity_order"], ["env", "config", "transcript", "git", "default"])
+        self.assertEqual(config.DEFAULTS["identity_order"], ["scheduled_task", "env", "config", "transcript", "git", "default"])
         cfg = self._cfg({"agent": "Configured", "identity_order": ["config", "git", "default"]})
         self.assertEqual(identity.agent_name(cfg, self.project, None, {"DREAMING_AGENT": "Env"}, _git("Git"))[0], "Configured")
 
@@ -178,3 +178,69 @@ class IndexPathTests(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+
+TAG = '<scheduled-task name="pm-agent" file="tasks/pm-agent/SKILL.md">'
+
+
+def write_scheduled_fixture(path, *, tag_in_first=True):
+    """A scheduled run's transcript: the task tag opens the FIRST user turn (or a later one, for
+    the control), and the agent-name record carries the session TITLE, as the desktop app writes."""
+    from test_extract import _rec
+    first = (TAG + " run the routine") if tag_in_first else "an ordinary question"
+    recs = [_rec("user", "us-0000-02", message={"role": "user", "content": first}),
+            {"type": "agent-name", "agentName": "Pm agent", "sessionId": "sess-0001"},
+            _rec("assistant", "as-0000-03", message={"role": "assistant", "content": [{"type": "text", "text": "ok"}]}),
+            _rec("user", "us-0000-04", message={"role": "user", "content": TAG + " again" if not tag_in_first else "more"})]
+    with open(path, "w", encoding="utf-8") as fh:
+        for r in recs:
+            fh.write(json.dumps(r) + chr(10))
+    return path
+
+
+class ScheduledTaskIdentityTests(unittest.TestCase):
+    """Field report 2026-09-23: a scheduled run's first user turn carries <scheduled-task name=...>,
+    which names the LANE on every run - where git user.name and config.agent are per BOX and the
+    agent-name record is the session title. Measured in this house too: pm-agent,
+    book-content-agent, web-gui-product."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="dreaming-st-")
+        self.home = os.path.join(self.tmp, "home"); os.makedirs(self.home)
+        self.project = os.path.join(self.tmp, "project"); os.makedirs(os.path.join(self.project, ".git"))
+        self.transcript = write_scheduled_fixture(os.path.join(self.tmp, "t.jsonl"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _cfg(self, project_json=None):
+        if project_json is not None:
+            with open(os.path.join(self.project, ".dreaming.json"), "w", encoding="utf-8") as fh:
+                json.dump(project_json, fh)
+        return config.load(project_dir=self.project, env={}, home=self.home)
+
+    def test_the_task_tag_is_the_first_identity_source_even_over_env(self):
+        cfg = self._cfg()
+        self.assertEqual(identity.agent_name(cfg, self.project, self.transcript, {"DREAMING_AGENT": "Env"}, _git("Git")),
+                         ("pm-agent", "scheduled_task"))
+
+    def test_a_tag_in_a_later_turn_is_not_an_identity(self):
+        later = write_scheduled_fixture(os.path.join(self.tmp, "later.jsonl"), tag_in_first=False)
+        cfg = self._cfg()
+        self.assertEqual(identity.agent_name(cfg, self.project, later, {}, _git("Git")), ("Pm agent", "transcript"))
+
+    def test_the_task_name_goes_through_the_agents_map_like_any_other(self):
+        lane = os.path.join(self.project, "team", "pm", "memory"); os.makedirs(lane)
+        worker = os.path.join(self.project, "team", "worker", "memory"); os.makedirs(worker)
+        cfg = self._cfg({"agents": {"pm-agent": "team/pm/memory", "Joule": "team/worker/memory"}})
+        res = identity.resolve(cfg, self.project, transcript=self.transcript, env={}, run=_git("Joule"))
+        self.assertEqual((res.agent, res.source, os.path.normcase(res.store)), ("pm-agent", "scheduled_task", os.path.normcase(lane)))
+        # unmapped task, mapped git name: the map still decides, one step down the chain
+        cfg = self._cfg({"agents": {"Joule": "team/worker/memory"}})
+        res = identity.resolve(cfg, self.project, transcript=self.transcript, env={}, run=_git("Joule"))
+        self.assertEqual((res.agent, res.source), ("Joule", "git"))
+
+    def test_without_a_map_the_task_gets_a_store_under_its_own_name(self):
+        cfg = self._cfg()
+        res = identity.resolve(cfg, self.project, transcript=self.transcript, env={}, run=_git("Box"))
+        self.assertFalse(res.scratch)
+        self.assertEqual(os.path.basename(res.store), "pm-agent")

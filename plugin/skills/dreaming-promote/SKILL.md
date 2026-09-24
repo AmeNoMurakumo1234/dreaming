@@ -12,7 +12,9 @@ writes your index precisely so that this step cannot be skipped by accident.
 ## Procedure
 
 1. **List what is waiting.** The session-start notice names the store and the folders. Or run,
-   from the plugin directory: `python -m dreaming.cli list`.
+   from the plugin directory: `python -m dreaming.cli list`, or `list --all` to see every lane's
+   store at once (routines dream into their own lanes since 0.4.0; their dreams are yours to
+   promote at the interactive checkup, never the routine's own job).
 2. **For each folder, read three files**: `brief.md` (what you were doing when you fell asleep),
    `lessons/*.md` (the candidates), `tensions.md` (what contradicted an entry you hold).
 3. **For each lesson, decide one of three things.**

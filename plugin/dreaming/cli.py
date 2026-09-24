@@ -16,7 +16,7 @@ import json
 import os
 import sys
 
-from . import config as _config, engines as se, exitsleep, identity, sleep as sl
+from . import config as _config, engines as se, exitsleep, extract as sx, identity, sleep as sl
 
 
 def _utf8_streams():
@@ -65,12 +65,20 @@ def _pick_engine(cfg, name):
     return se.build_engine(cfg)
 
 
+def _task_of(transcript):
+    """The scheduled-task name in the transcript's first user turn, or '' - never raises."""
+    try:
+        return (sx.scheduled_task_name(transcript) or "") if transcript and os.path.isfile(transcript) else ""
+    except Exception:
+        return ""
+
+
 def _run(cfg, args, transcript, session_id, out_root, agent, index_text, engine, engine_name):
     return sl.run_sleep(transcript, agent=agent, session_id=session_id, out_root=out_root,
                         engine=engine, engine_name=engine_name,
                         include_thinking=bool(getattr(args, "include_thinking", False) or cfg.get("include_thinking")),
                         budget_seconds=int(getattr(args, "budget", None) or cfg.get("budget_seconds") or 3000),
-                        index_text=index_text, chunk_chars=int(cfg.get("chunk_chars") or 60000),
+                        index_text=index_text, task=_task_of(transcript), chunk_chars=int(cfg.get("chunk_chars") or 60000),
                         cap_chars=int(cfg.get("cap_chars") or 400000),
                         result_head=int(cfg.get("result_head") or 400))
 
@@ -177,14 +185,30 @@ def cmd_notice(args):
         if res.scratch:
             return 0
         dreams = sl.dreams_awaiting(res.store, stale_days=int(cfg.get("stale_days") or 14))
-        if not dreams:
+        lines = []
+        task = _task_of(hook.get("transcript_path"))
+        # Scheduled runs only: an interactive session has no task, so there is no key to match a
+        # brief on, and two interactive sessions of one agent would hand each other their briefs.
+        if cfg.get("reseed_on_startup") and dreams and task:
+            carry = sl.newest_brief(res.store, task=task, max_age_hours=float(cfg.get("reseed_max_age_hours") or 48))
+            if carry:
+                lines += ["# Carry-over from your previous run (dream %s, task %s)" % (carry["name"], task),
+                          "",
+                          carry["text"].rstrip(),
+                          "",
+                          "(dreaming carry-over: this brief was written by the sleep at the END of your previous "
+                          "run. Read Next Step and Uncommitted Decisions as what that run LEFT, and verify each "
+                          "before acting on it. A brief is a candidate, not a fact; it is never promoted.)",
+                          ""]
+        if dreams:
+            lines.append("dreaming: %d dream(s) awaiting promotion in %s (agent %s). Read them in your first "
+                         "coherence pass and promote or delete each folder - the dreaming-promote skill is the "
+                         "procedure." % (len(dreams), res.store, res.agent))
+            for d in dreams:
+                lines.append("  %s - %d lesson(s), %d tension(s)%s" % (
+                    d["name"], d["lessons"], d["tensions"], "  STALE" if d["stale"] else ""))
+        if not lines:
             return 0
-        lines = ["dreaming: %d dream(s) awaiting promotion in %s (agent %s). Read them in your first "
-                 "coherence pass and promote or delete each folder - the dreaming-promote skill is the "
-                 "procedure." % (len(dreams), res.store, res.agent)]
-        for d in dreams:
-            lines.append("  %s - %d lesson(s), %d tension(s)%s" % (
-                d["name"], d["lessons"], d["tensions"], "  STALE" if d["stale"] else ""))
         print(_hook_context("\n".join(lines)))
     except Exception as exc:
         print("dreaming: notice skipped: %s" % exc, file=sys.stderr)
@@ -210,8 +234,34 @@ def cmd_dream(args):
     return 0
 
 
+def _every_store(cfg):
+    """(label, path) for every mapped store plus every child of store_root that holds dreams/."""
+    seen, out = set(), []
+    for name, path in sorted((cfg.get("agents") or {}).items()):
+        key = os.path.normcase(os.path.abspath(str(path)))
+        if key not in seen and os.path.isdir(path):
+            seen.add(key); out.append((name, path))
+    root = os.path.expanduser(str(cfg.get("store_root") or ""))
+    if os.path.isdir(root):
+        for name in sorted(os.listdir(root)):
+            path = os.path.join(root, name)
+            key = os.path.normcase(os.path.abspath(path))
+            if key not in seen and os.path.isdir(os.path.join(path, sl.DREAMS_DIRNAME)):
+                seen.add(key); out.append((name, path))
+    return out
+
+
 def cmd_list(args):
     cfg, cwd, env = _load(args, {})
+    if getattr(args, "all", False):
+        stale_days = int(cfg.get("stale_days") or 14)
+        rows = [(name, path, sl.dreams_awaiting(path, stale_days=stale_days)) for name, path in _every_store(cfg)]
+        if not rows:
+            print("no stores found (no agents map, and nothing under %s)" % cfg.get("store_root"))
+            return 0
+        for name, path, dreams in rows:
+            print("%s  %s  -  %d dream(s), %d stale" % (name, path, len(dreams), sum(1 for d in dreams if d["stale"])))
+        return 0
     res = identity.resolve(cfg, cwd, transcript=None, env=env)
     if res.scratch:
         print("no store:", res.reason)
@@ -254,6 +304,7 @@ def main(argv=None):
     d.add_argument("--dry-run", action="store_true")
     l = sub.add_parser("list")
     l.add_argument("--agent")
+    l.add_argument("--all", action="store_true", help="every store: mapped ones and every child of store_root")
     sub.add_parser("config")
     args = parser.parse_args(argv)
     _utf8_streams()

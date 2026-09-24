@@ -18,10 +18,10 @@ happens. What changes is that nothing worth keeping has to survive it.
 | Context about to compact | `PreCompact`, blocking, one-hour ceiling | extract, map each slice, reduce against your index, write a dream folder |
 | The session ends | `SessionEnd` (capped at 60 s) | if enough is new since the last watermark, the same sleep runs in a detached child that outlives the session |
 | Right after compaction | `SessionStart` (`compact`) | the newest brief for this session is injected as context |
-| New or resumed session | `SessionStart` (`startup`, `resume`) | "N dream(s) awaiting promotion in <store>" |
+| New or resumed session | `SessionStart` (`startup`, `resume`) | "N dream(s) awaiting promotion in <store>"; with `reseed_on_startup`, a scheduled run also receives its own task's previous brief |
 
 The engine ladder: any local OpenAI-compatible server first (llama.cpp, vLLM, Ollama),
-`claude -p --safe-mode` on the CLI's own login second, and a mechanical brief built from the last
+`claude -p --safe-mode` (sonnet) on the CLI's own login second, and a mechanical brief built from the last
 turns when neither answers. Every hook exits 0 on any failure; compaction is never blocked on a
 dead engine, and every engine call is bounded by the remaining budget so a sleep cannot outrun
 the hook's one-hour ceiling. The hooks invoke `python`, so Python 3.10+ has to be on the PATH
@@ -73,8 +73,9 @@ its own store:
 ```
 
 With a map in place the agent is the first identity source whose name is in the map (the
-sources, in order: `DREAMING_AGENT`, a configured `agent`, the transcript's agent-name record,
-`git config user.name`). An agent no source can name dreams into scratch, and a mapped store that
+sources, in order: the `<scheduled-task name=...>` tag of a scheduled run, `DREAMING_AGENT`, a
+configured `agent`, the transcript's agent-name record, `git config user.name`). A scheduled run
+therefore dreams into its task's own lane, and can pick the dream up on its next run. An agent no source can name dreams into scratch, and a mapped store that
 is missing is never created (a lost store must not be silently rebuilt by the tool that serves
 it). The full contract is in the `dreaming` skill.
 

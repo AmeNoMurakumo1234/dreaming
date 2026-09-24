@@ -116,13 +116,14 @@ def _write(path, text):
 def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engine_name="mechanical",
               include_thinking=False, budget_seconds=DEFAULT_BUDGET_SECONDS, index_text="",
               now=None, clock=time.monotonic, chunk_chars=DEFAULT_CHUNK_CHARS, cap_chars=DEFAULT_CAP_CHARS,
-              result_head=400, min_call_seconds=MIN_CALL_SECONDS):
+              result_head=400, min_call_seconds=MIN_CALL_SECONDS, task=None):
     now = now or _dt.datetime.now()
     folder = _fresh_folder(out_root, session_id, now)
     log = _Log(os.path.join(folder, "sleep.log"))
     meta = {"agent": agent, "session_id": session_id, "engine": engine_name,
-            "when": now.strftime("%Y-%m-%d %H:%M")}
-    log.write("sleep start | agent: %s | session: %s | engine: %s" % (agent, session_id, engine_name))
+            "when": now.strftime("%Y-%m-%d %H:%M"), "task": task or ""}
+    log.write("sleep start | agent: %s | session: %s | engine: %s%s" % (
+        agent, session_id, engine_name, (" | task: %s" % task) if task else ""))
     started = clock()
     result = {"folder": folder, "lessons": 0, "tensions": 0, "degraded": log.degraded, "stages": {}}
 
@@ -233,6 +234,34 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
     log.write("write | lessons %d | tensions %d | %.1fs" % (len(lessons), len(tensions), clock() - started))
     log.write("engine: %s" % engine_name)
     return result
+
+
+def brief_task(text):
+    """The `task <name>` stamped in a brief's header, or '' when the brief was not a routine's."""
+    head = text.split(chr(10), 1)[0]
+    marker = "| task "
+    if marker not in head:
+        return ""
+    return head.split(marker, 1)[1].split("|", 1)[0].replace("-->", "").strip()
+
+
+def newest_brief(memory_path, *, task="", max_age_hours=48, now=None):
+    """The store's newest brief written under the SAME scheduled-task name (a routine's), or with
+    no task at all for an interactive session, younger than max_age_hours. Keyed by task, not by
+    store: two routines of one mind may share a store and must not receive each other's brief."""
+    now = time.time() if now is None else now
+    for d in dreams_awaiting(memory_path, now=now):
+        path = os.path.join(d["path"], "brief.md")
+        if not os.path.isfile(path):
+            continue
+        if d["age_days"] * 24.0 > max_age_hours:
+            continue
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+        if brief_task(text) != (task or ""):
+            continue
+        return {"folder": d["path"], "name": d["name"], "text": text, "task": task or ""}
+    return None
 
 
 def newest_dream_for(memory_path, session_id):

@@ -125,3 +125,12 @@ class EndpointListTests(ConfigTests):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RoutineDefaultsTests(unittest.TestCase):
+    def test_claude_fallback_defaults_to_sonnet_and_reseed_on_startup_is_off(self):
+        """Owner ruling 2026-09-23: haiku returned empty slices on short scheduled runs five times
+        in a day; the fallback runs rarely and reads better than it runs fast."""
+        self.assertEqual(config.DEFAULTS["claude"]["model"], "sonnet")
+        self.assertIs(config.DEFAULTS["reseed_on_startup"], False)
+        self.assertEqual(config.DEFAULTS["reseed_max_age_hours"], 48)

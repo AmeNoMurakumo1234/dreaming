@@ -14,6 +14,7 @@ the harness injected (thousands of lines each), and `isSidechain` records belong
 threads. Both are dropped, or every dream is dominated by text nobody said.
 """
 import json
+import re
 from collections import namedtuple
 
 Turn = namedtuple("Turn", "uuid timestamp role text")
@@ -124,6 +125,33 @@ def transcript_agent_name(path):
                 if name:
                     found = name
     return found
+
+
+_TASK_TAG = re.compile(r'<scheduled-task[^>]*name="([^"]+)"')
+
+
+def scheduled_task_name(path):
+    """The `name` of a <scheduled-task ...> tag in the transcript's FIRST user turn, or None.
+    A scheduled run's first turn carries the task's name on every run - the lane, where git
+    user.name and a configured agent are per box and the agent-name record is the session title
+    (field report 2026-09-23; measured in this house on pm-agent, book-content-agent and
+    web-gui-product). Only the first user turn counts: a tag quoted later is not an identity."""
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if '"user"' not in line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(rec, dict) or rec.get("type") != "user":
+                continue
+            content = (rec.get("message") or {}).get("content")
+            if isinstance(content, list):
+                content = " ".join(str(b.get("text") or "") for b in content if isinstance(b, dict))
+            m = _TASK_TAG.search(str(content or ""))
+            return m.group(1).strip() if m else None
+    return None
 
 
 def _render_turn(turn):

@@ -296,8 +296,9 @@ def slugify(title):
 
 
 def _header(meta):
-    return ("<!-- sleep %s | agent %s | session %s | engine %s -->\n" %
-            (meta.get("when"), meta.get("agent"), meta.get("session_id"), meta.get("engine")))
+    task = (" | task %s" % meta["task"]) if meta.get("task") else ""
+    return ("<!-- sleep %s | agent %s | session %s | engine %s%s -->\n" %
+            (meta.get("when"), meta.get("agent"), meta.get("session_id"), meta.get("engine"), task))
 
 
 def render_brief(state, meta):
