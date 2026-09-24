@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.2 - 2026-09-23
+
+Three defects from a field report on the first PreCompact sleep of a long interactive session
+(4090-class local server, 220 s, seven slices), plus one documented behaviour. 5 tests added,
+126 pass.
+
+- The brief's state is a COPY of the newest slice's state, never the reduce's choice. The reduce
+  had re-emitted the second-newest slice's state verbatim - six hours stale - while the newest
+  slice held the right one, so the 0.3.1 rule (which only fired when the newest slice was EMPTY)
+  did not catch it. Now `sleep.log` says `state: copied from slice N of N`; an unmapped or empty
+  newest slice still means the mechanical state, as before.
+- A tension must name an entry the index actually holds. With no index the reduce had filed
+  twelve tensions against "existing entries" built from the transcript's own sentences. Now:
+  no index, no tensions (`no index; tensions not filed (N dropped)`); with an index, a tension
+  whose `existing_slug` is not in it is dropped and counted
+  (`N tension(s) named entries not in the index; dropped`).
+- A capped day opens on a user or assistant turn, never on an orphan `tool_result` whose
+  `tool_use` fell on the far side of the cap.
+- Documented: `index_file` may be an absolute path, for a lane whose real index lives outside
+  its store (it already worked; now it is pinned by a test and said in the skill). Dream folder
+  names and `sleep.log` stamps are LOCAL time, said in the skill. A private LAN address in the
+  docs' endpoint example is now a documentation address.
+
 ## 0.3.1 - 2026-09-23
 
 Two defects exposed by the first live sleep on the `claude` engine (llama down, Haiku dreamed;

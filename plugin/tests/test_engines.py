@@ -138,7 +138,7 @@ class MultiEndpointTests(unittest.TestCase):
 
     def test_endpoint_label_is_the_label_else_the_host_and_port(self):
         self.assertEqual(se.endpoint_label(self.FAST), "4090")
-        self.assertEqual(se.endpoint_label({"base_url": "http://192.168.1.111:8602/"}), "192.168.1.111:8602")
+        self.assertEqual(se.endpoint_label({"base_url": "http://192.0.2.11:8602/"}), "192.0.2.11:8602")
         self.assertEqual(se.endpoint_label({}), "openai_compatible")
 
     def test_a_raising_first_endpoint_falls_through_to_the_second_not_to_claude(self):

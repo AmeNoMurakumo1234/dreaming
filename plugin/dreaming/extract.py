@@ -132,13 +132,21 @@ def _render_turn(turn):
 
 def render_day(turns, *, cap_chars=400_000):
     """One text, newest turns kept when the cap bites. Returns (text, capped)."""
-    rendered = [_render_turn(t) for t in turns]
-    total = sum(len(r) for r in rendered)
+    pairs = [(t.role, _render_turn(t)) for t in turns]
+    total = sum(len(r) for _, r in pairs)
     capped = False
-    while rendered and total > cap_chars:
-        total -= len(rendered.pop(0))
+    while pairs and total > cap_chars:
+        total -= len(pairs.pop(0)[1])
         capped = True
-    return "".join(rendered), capped
+    if capped:
+        # Open on a user or assistant turn, never on an orphan tool_result whose tool_use fell
+        # on the far side of the cap (field report 2026-09-23) - unless that would empty the day.
+        i = 0
+        while i < len(pairs) and pairs[i][0] not in ("user", "assistant"):
+            i += 1
+        if i < len(pairs):
+            pairs = pairs[i:]
+    return "".join(r for _, r in pairs), capped
 
 
 def chunk_text(text, *, max_chars=160_000):

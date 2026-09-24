@@ -30,7 +30,7 @@ under that name (on Windows, not the Store stub).
 ## The dream folder
 
 ```
-<store>/dreams/20260922-125402-2def5d4e/
+<store>/dreams/20260922-125402-2def5d4e/        (local time, then the session's first 8 chars)
   day.md            the extracted transcript
   map/1.json ...    the model's notes per slice
   reduce.json       the merge, matched against your index

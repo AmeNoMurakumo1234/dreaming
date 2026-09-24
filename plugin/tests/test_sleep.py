@@ -16,6 +16,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 
+NL = chr(10)
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = os.path.abspath(os.path.join(HERE, ".."))
 if PLUGIN not in sys.path:
@@ -174,7 +175,49 @@ class SleepRunTests(unittest.TestCase):
         brief = _read(os.path.join(out["folder"], "brief.md"))
         self.assertIn("GPU research", brief)
         self.assertNotIn("mechanical brief", brief)
-        self.assertTrue(any("reduce state empty" in d for d in out["degraded"]))
+        self.assertIn("state: copied from slice 1 of 1", _read(os.path.join(out["folder"], "sleep.log")))
+
+    def test_the_brief_state_is_copied_from_the_newest_slice_never_the_reduce(self):
+        """Field report 2026-09-23: the reduce re-emitted the SECOND-newest slice's state verbatim
+        while map/7 held the right one. The state is a COPY of the newest slice, not a model
+        choice, so the rule cannot be broken by a reduce that prefers an older slice."""
+        with open(self.transcript, "w", encoding="utf-8") as fh:
+            for i in range(20):
+                fh.write(json.dumps(_rec("user", "us-0002-%02d" % i, message={"role": "user", "content": "q" * 500})) + NL)
+        newest = json.dumps(dict(json.loads(MAP_JSON), state={"current_task": "the newest slice task", "exact_state": "e",
+                                                             "next_step": "n", "uncommitted_decisions": [], "files_in_context": []}))
+        calls = []
+
+        def fn(system, user, *, max_tokens=4000, timeout=None):
+            if system is sd.REDUCE_SYSTEM:
+                return EngineResult(True, REDUCE_JSON, "fake", None)
+            calls.append(1)
+            head = user.split(".")[0].split()          # 'Slice', n, 'of', total
+            return EngineResult(True, newest if head[1] == head[3] else MAP_JSON, "fake", None)
+
+        out = self._run(engine=fn, chunk_chars=2000)
+        n = len(calls)
+        self.assertGreater(n, 1, "fixture must produce several slices")
+        brief = _read(os.path.join(out["folder"], "brief.md"))
+        self.assertIn("the newest slice task", brief)
+        self.assertNotIn("GPU research", brief)
+        self.assertIn("state: copied from slice %d of %d" % (n, n), _read(os.path.join(out["folder"], "sleep.log")))
+
+    def test_a_tension_naming_an_entry_not_in_the_index_is_dropped_and_counted(self):
+        """Field report 2026-09-23: twelve tensions, every 'existing entry' invented from the
+        transcript's own sentences. A tension against an entry the mind does not hold invites it
+        to resolve a contradiction it never had."""
+        full = json.loads(REDUCE_JSON)
+        full["tensions"].append({"claim": "c2", "existing_slug": "made-up-entry", "existing_line": "x",
+                                 "side_a": "a", "side_b": "b"})
+        out = self._run(engine=self._engine(reduce_text=json.dumps(full)))
+        self.assertEqual(out["tensions"], 1)
+        self.assertTrue(any("1 tension(s) named entries not in the index; dropped" in d for d in out["degraded"]), out["degraded"])
+
+    def test_without_an_index_no_tension_is_filed(self):
+        out = self._run(index_text="")
+        self.assertEqual(out["tensions"], 0)
+        self.assertTrue(any("no index; tensions not filed" in d for d in out["degraded"]), out["degraded"])
 
     def test_truncated_reduce_is_named_in_the_log(self):
         full = json.loads(REDUCE_JSON)

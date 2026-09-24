@@ -185,37 +185,40 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
             elif maps:
                 r = sd.reduce_maps(engine, maps, index_text, max_chars=chunk_chars, timeout=int(remaining))
                 _write(os.path.join(folder, "reduce.json"), json.dumps(r, ensure_ascii=True, indent=1))
-                last_map_state = next((m["state"] for m in reversed(maps) if m["state"].get("current_task")), None)
                 if r.get("gave_up"):
                     log.degrade("reduce input too large for the window; using the union of the map passes")
                 if r["parse_failed"]:
                     log.degrade("reduce did not parse; falling back to the union of the map passes")
                     lessons = [l for m in maps for l in m["lessons"]]
                     tensions = [t for m in maps for t in m["tensions"]]
-                    state = last_map_state
                 else:
-                    lessons, tensions, state = r["lessons"], r["tensions"], r["state"]
+                    lessons, tensions = r["lessons"], r["tensions"]
                     if r.get("truncated"):
                         log.degrade("reduce reply truncated (provider cap); salvaged %d lesson(s)" % len(lessons))
                     log.write("reduce | lessons %d | tensions %d | halved %d" % (len(lessons), len(tensions), r["halved"]))
-                    if not state.get("current_task") and last_map_state:
-                        log.degrade("reduce state empty; using the last map slice's state")
-                        state = last_map_state
-            # The resume state may only come from the NEWEST slice of the day. If that slice was
-            # never mapped (budget) or came back without a state, whatever the reduce or an older
-            # slice produced is stale by construction: the 2026-09-23 brief told a waking agent it
-            # was on work finished eight hours earlier. Crude and true beats articulate and stale.
-            if len(maps) < len(chunks) or not (maps and maps[-1]["state"].get("current_task")):
+            # The resume state is a COPY of the newest slice's, never the reduce's choice. Two
+            # field measurements on 2026-09-23: the reduce re-emitted the second-newest slice's
+            # state verbatim while the newest slice held the right one; and on another run the
+            # newest three slices came back empty and the reduce built a brief from six the
+            # previous evening. If the newest slice was never mapped (budget) or has no state,
+            # the mechanical state of the last turns is crude but true.
+            if maps and len(maps) == len(chunks) and maps[-1]["state"].get("current_task"):
+                state = maps[-1]["state"]
+                log.write("state: copied from slice %d of %d" % (len(maps), len(chunks)))
+            else:
                 log.degrade("newest slice yielded no state (unmapped or empty); brief is mechanical")
-                state = sd.mechanical_state(turns)
-            if not state or not state.get("current_task"):
                 state = sd.mechanical_state(turns)
     except Exception as exc:  # the hook must never die on an engine or a bug
         log.degrade("exception: %s" % exc)
         log.write(traceback.format_exc())
         state = state or sd.mechanical_state(turns)
 
-    # 4. write
+    # 4. write - a tension must name an entry the mind actually holds
+    tensions, dropped = sd.filter_tensions(tensions, index_text)
+    if dropped and not index_text:
+        log.degrade("no index; tensions not filed (%d dropped)" % dropped)
+    elif dropped:
+        log.degrade("%d tension(s) named entries not in the index; dropped" % dropped)
     _write(os.path.join(folder, "brief.md"), sd.render_brief(state, meta))
     os.makedirs(os.path.join(folder, "lessons"), exist_ok=True)
     used = set()

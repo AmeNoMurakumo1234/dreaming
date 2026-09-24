@@ -158,3 +158,23 @@ class IdentityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IndexPathTests(unittest.TestCase):
+    def test_index_file_may_be_an_absolute_path_outside_the_store(self):
+        """Field report 2026-09-23: a lane's real index lived outside its store and a
+        store-relative name could not reach it, so no lesson was ever marked extends."""
+        import tempfile, shutil
+        tmp = tempfile.mkdtemp(prefix="dreaming-idx-")
+        try:
+            idx = os.path.join(tmp, "elsewhere", "INDEX.md")
+            os.makedirs(os.path.dirname(idx))
+            with open(idx, "w", encoding="utf-8") as fh:
+                fh.write("- a-real-entry - A real entry" + chr(10))
+            store = os.path.join(tmp, "store")
+            os.makedirs(store)
+            text = identity.index_text(store, {"index_file": idx})
+            self.assertIn("a-real-entry", text)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+

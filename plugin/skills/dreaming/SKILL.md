@@ -27,14 +27,14 @@ it (default 50 minutes) stops the work early and writes what it has.
 
 ## The dream folder
 
-`<store>/dreams/<YYYYMMDD-HHMMSS>-<session8>/`
+`<store>/dreams/<YYYYMMDD-HHMMSS>-<session8>/` - the stamp is LOCAL time, as are the stamps in `sleep.log`
 
 | File | What it is |
 |---|---|
 | `day.md` | the extracted transcript: user and assistant text, tool names, trimmed tool results, one `### role @time [uuid]` marker per turn |
 | `map/<n>.json` | the model's notes per slice |
 | `reduce.json` | the merged notes, matched against your index |
-| `brief.md` | the resume brief: Current Task, Exact State, Next Step, Uncommitted Decisions, Files Currently In Context |
+| `brief.md` | the resume brief: Current Task, Exact State, Next Step, Uncommitted Decisions, Files Currently In Context - a COPY of the newest slice's state (since 0.3.2 the reduce never chooses it) |
 | `lessons/<slug>.md` | one candidate lesson each: title, why, how to apply, provenance (session and turn uuids); `extends: <slug>` when it extends an entry you already hold |
 | `tensions.md` | contradictions with your existing entries, both sides stated, deliberately NOT resolved |
 | `sleep.log` | the run: engine, per-stage timings, every `degraded: <reason>` line, and the `watermark:` uuid the next sleep in this session continues from |
@@ -91,7 +91,7 @@ exit sleep; compaction still sleeps.
 ```json
 { "openai_compatible": [
     {"label": "4090", "base_url": "https://fast.example:443", "api_key_file": "~/.llamakey", "model": "local"},
-    {"label": "mini", "base_url": "http://192.168.1.111:8602", "api_key_file": "~/.llamakey", "model": "local",
+    {"label": "mini", "base_url": "http://192.0.2.11:8602", "api_key_file": "~/.llamakey", "model": "local",
      "max_tokens": 12000, "timeout": 1200}
   ] }
 ```
@@ -125,7 +125,9 @@ worked) or point at a server that does not split.
    else: `notice`, `reseed`, `list` and a `--dry-run` dream create no directories.
 5. Scratch is the hook's scratchpad directory when it gives one, else `<tempdir>/dreaming/`.
 6. The index is `<store>/<index_file>` when present, one bounded line per entry, and the reduce
-   uses it to mark each lesson `new` or `extends: <slug>`.
+   uses it to mark each lesson `new` or `extends: <slug>`. `index_file` may be an ABSOLUTE path
+   for a lane whose real index lives outside its store. Without an index no tension is filed,
+   and with one a tension must name an entry in it (0.3.2).
 
 ## Engines
 
@@ -156,10 +158,16 @@ Every fallback is a `degraded:` line. The ones you will see:
 - `no engine - mechanical brief`: neither model answered; the brief is mechanical, promote nothing.
 - `map chunk N did not parse` / `engine error`: that slice produced nothing; the others still count.
 - `map chunk N returned no lessons and no state`: the reply parsed and was empty. One is a quiet
-  slice; several, or the newest one, means the model was not really reading (Haiku, 2026-09-23).
+  slice; several, or the newest one, means the model was not really reading. Measured twice on
+  the `claude` engine at its default `haiku` on short, structured scheduled runs; if that is your
+  shape, set `"claude": {"model": "sonnet"}` - the fallback runs rarely and reads better than
+  it runs fast.
 - `newest slice yielded no state (unmapped or empty); brief is mechanical`: the resume state may
   only come from the newest slice of the day, and that slice gave none, so the brief is built from
-  the last turns rather than from an older slice's articulate but stale state.
+  the last turns rather than from an older slice's articulate but stale state. The plain line
+  `state: copied from slice N of N` is the healthy case: the brief is that slice's state, verbatim.
+- `no index; tensions not filed (N dropped)` / `N tension(s) named entries not in the index; dropped`:
+  a tension must name an entry you hold; the model had invented the entry from the day itself.
 - `map chunk N truncated` / `reduce reply truncated (provider cap)`: the reply hit the token cap;
   what was salvaged is a prefix, the brief is intact (state comes first in the contract).
 - `reduce input too large for the window; using the union of the map passes`: no cross-slice

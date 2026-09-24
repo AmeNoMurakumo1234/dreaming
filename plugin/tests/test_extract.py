@@ -129,6 +129,20 @@ class ExtractTests(unittest.TestCase):
         self.assertIn("as-0000-11", small)
         self.assertNotIn("us-0000-02", small)
 
+    def test_a_capped_day_never_opens_on_a_tool_result(self):
+        """Field report 2026-09-23: the kept window opened on an orphan tool_result whose
+        tool_use fell on the far side of the cap, so the first slice began with an answer to a
+        question the model never sees. Trim to a user or assistant turn."""
+        T = sx.Turn
+        turns = [T("u1", "t", "user", "q" * 100), T("a1", "t", "assistant", "a" * 100),
+                 T("tu", "t", "tool_use", "x" * 100), T("tr", "t", "tool_result", "r" * 100),
+                 T("u2", "t", "user", "the LAST question"), T("a2", "t", "assistant", "final")]
+        text, capped = sx.render_day(turns, cap_chars=220)
+        self.assertTrue(capped)
+        self.assertTrue(text.startswith(sx.TURN_MARK + "user"), text[:60])
+        self.assertNotIn("[tr]", text)
+        self.assertIn("the LAST question", text)
+
     def test_chunk_text_splits_on_turn_boundaries(self):
         turns, _ = sx.extract_turns(self.path)
         text, _ = sx.render_day(turns)

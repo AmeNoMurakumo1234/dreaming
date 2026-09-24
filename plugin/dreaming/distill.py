@@ -162,6 +162,18 @@ def _clean_tensions(raw):
     return out
 
 
+def filter_tensions(tensions, index_text):
+    """Keep only tensions whose existing_slug names an entry in the index; return (kept, dropped).
+    Field report 2026-09-23: with no index the reduce still filed twelve tensions, each against
+    an 'existing entry' built from the transcript's own sentences. A tension against an entry the
+    mind does not hold is worse than none - it invites resolving a contradiction never held."""
+    if not index_text:
+        return [], len(tensions)
+    kept = [t for t in tensions if str(t.get("existing_slug") or "").strip()
+            and str(t.get("existing_slug")).strip() in index_text]
+    return kept, len(tensions) - len(kept)
+
+
 def _empty(raw, **extra):
     out = {"lessons": [], "state": _clean_state({}), "tensions": [], "parse_failed": True,
            "truncated": False, "raw": raw}

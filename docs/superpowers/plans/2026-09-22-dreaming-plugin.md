@@ -1448,7 +1448,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - [ ] **Step 1: Console-flash scanner and manifest validation**
 
 ```bash
-python "C:/Users/murik/.claude/skills/spawning-processes-without-flashing-windows/scan_spawns.py" F:/writing/plugins/dreaming --all
+python "<home>/.claude/skills/spawning-processes-without-flashing-windows/scan_spawns.py" F:/writing/plugins/dreaming --all
 claude plugin validate F:/writing/plugins/dreaming --strict
 claude plugin validate F:/writing/plugins/dreaming/plugin --strict
 ```
@@ -1456,9 +1456,9 @@ Expected: zero UNGUARDED spawns (every `subprocess.run` carries `creationflags`)
 
 - [ ] **Step 2: Live dream through llama into scratch**
 
-With `Y:/llamakey` as the key file:
+With `<key-file>` as the key file:
 ```bash
-cd F:/writing/plugins/dreaming/plugin && DREAMING_API_KEY_FILE=Y:/llamakey DREAMING_AGENT=Joule python -m dreaming.cli dream --dry-run --engine openai_compatible --transcript "C:/Users/murik/.claude/projects/F--writing-quantum-concepts/2def5d4e-48fc-4013-b40f-c98c51288afc.jsonl"
+cd F:/writing/plugins/dreaming/plugin && DREAMING_API_KEY_FILE=<key-file> DREAMING_AGENT=Joule python -m dreaming.cli dream --dry-run --engine openai_compatible --transcript "<home>/.claude/projects/F--writing-quantum-concepts/2def5d4e-48fc-4013-b40f-c98c51288afc.jsonl"
 ```
 Expected: `engine: openai_compatible`, a folder under `%TEMP%/dreaming/dreams/`, lessons > 0, a brief whose Current Task is about the dreaming plugin, `degraded: none`. Read `brief.md` and two lessons; record chunks, seconds, lessons, tensions in the release commit.
 

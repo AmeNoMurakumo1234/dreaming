@@ -69,7 +69,7 @@ ladder. `label` names it in the logs.
 ```json
 { "openai_compatible": [
     {"label": "4090", "base_url": "https://fast.example", "api_key_file": "~/.llamakey", "model": "local"},
-    {"label": "mini", "base_url": "http://192.168.1.111:8602", "api_key_file": "~/.llamakey", "model": "local",
+    {"label": "mini", "base_url": "http://192.0.2.11:8602", "api_key_file": "~/.llamakey", "model": "local",
      "max_tokens": 12000, "timeout": 1200}
   ] }
 ```
