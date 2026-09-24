@@ -65,6 +65,24 @@ def _pick_engine(cfg, name):
     return se.build_engine(cfg)
 
 
+def known_rules_text(cfg, project_dir=None):
+    """The concatenated content of cfg['known_rules'] files (absolute, ~-relative, or relative to
+    the project), each under a '# <path>' line; missing files skipped; '' when none. Never raises."""
+    parts = []
+    for raw in cfg.get("known_rules") or []:
+        try:
+            path = os.path.expanduser(str(raw))
+            if not os.path.isabs(path):
+                path = os.path.join(project_dir or os.getcwd(), path)
+            if not os.path.isfile(path):
+                continue
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                parts.append("# %s" % os.path.basename(path) + chr(10) + fh.read().strip() + chr(10))
+        except Exception:
+            continue
+    return chr(10).join(parts)
+
+
 def _task_of(transcript):
     """The scheduled-task name in the transcript's first user turn, or '' - never raises."""
     try:
@@ -78,7 +96,7 @@ def _run(cfg, args, transcript, session_id, out_root, agent, index_text, engine,
                         engine=engine, engine_name=engine_name,
                         include_thinking=bool(getattr(args, "include_thinking", False) or cfg.get("include_thinking")),
                         budget_seconds=int(getattr(args, "budget", None) or cfg.get("budget_seconds") or 3000),
-                        index_text=index_text, task=_task_of(transcript), chunk_chars=int(cfg.get("chunk_chars") or 60000),
+                        index_text=index_text, task=_task_of(transcript), known_rules=known_rules_text(cfg, getattr(args, 'project', None)), chunk_chars=int(cfg.get("chunk_chars") or 60000),
                         cap_chars=int(cfg.get("cap_chars") or 400000),
                         result_head=int(cfg.get("result_head") or 400))
 
@@ -99,7 +117,7 @@ def cmd_sleep(args):
             raise FileNotFoundError("transcript not found: %r" % transcript)
         identity.ensure_store(res)          # the one place a default store is created
         engine, engine_name = _pick_engine(cfg, args.engine)
-        index_text = "" if res.scratch else identity.index_text(res.store, cfg)
+        index_text = "" if res.scratch else identity.index_text(res.store, cfg, agent=res.agent)
         out = _run(cfg, args, transcript, session_id, res.store, res.agent, index_text, engine, engine_name)
         print("dreaming: %s | engine %s | lessons %d | tensions %d%s" % (
             out["folder"], engine_name, out["lessons"], out["tensions"],
@@ -227,7 +245,7 @@ def cmd_dream(args):
         print("dreaming into scratch:", out_root)
     engine, engine_name = _pick_engine(cfg, args.engine)
     print("engine:", engine_name)
-    index_text = "" if to_scratch else identity.index_text(res.store, cfg)
+    index_text = "" if to_scratch else identity.index_text(res.store, cfg, agent=res.agent)
     out = _run(cfg, args, args.transcript, session_id, out_root, res.agent, index_text, engine, engine_name)
     print(json.dumps({k: v for k, v in out.items() if k != "stages"}, indent=1))
     print("stages:", json.dumps(out["stages"]))

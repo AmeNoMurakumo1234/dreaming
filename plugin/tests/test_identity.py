@@ -244,3 +244,54 @@ class ScheduledTaskIdentityTests(unittest.TestCase):
         res = identity.resolve(cfg, self.project, transcript=self.transcript, env={}, run=_git("Box"))
         self.assertFalse(res.scratch)
         self.assertEqual(os.path.basename(res.store), "pm-agent")
+
+
+class PerAgentIndexAndFallbackTests(unittest.TestCase):
+    """Field report on 0.4.0: a lane's index lives outside its store and is SEVERAL files; and a
+    map that names only the interactive agent sent every routine's dream to scratch, undoing the
+    lane split. Both are config, both opt-in, neither changes a store that does not ask."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="dreaming-idx-")
+        self.home = os.path.join(self.tmp, "home"); os.makedirs(self.home)
+        self.project = os.path.join(self.tmp, "project"); os.makedirs(os.path.join(self.project, ".git"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _cfg(self, project_json):
+        with open(os.path.join(self.project, ".dreaming.json"), "w", encoding="utf-8") as fh:
+            json.dump(project_json, fh)
+        return config.load(project_dir=self.project, env={}, home=self.home)
+
+    def test_indexes_map_reads_several_files_for_one_agent_and_skips_a_missing_one(self):
+        a = os.path.join(self.tmp, "a", "INDEX.md"); os.makedirs(os.path.dirname(a))
+        b = os.path.join(self.tmp, "b", "INDEX.md"); os.makedirs(os.path.dirname(b))
+        with open(a, "w", encoding="utf-8") as fh:
+            fh.write("- from-a - A" + chr(10))
+        with open(b, "w", encoding="utf-8") as fh:
+            fh.write("- from-b - B" + chr(10))
+        store = os.path.join(self.tmp, "store"); os.makedirs(store)
+        with open(os.path.join(store, "MEMORY.md"), "w", encoding="utf-8") as fh:
+            fh.write("- from-store - S" + chr(10))
+        cfg = self._cfg({"indexes": {"Joule": [a, b, os.path.join(self.tmp, "missing.md")]}})
+        text = identity.index_text(store, cfg, agent="Joule")
+        self.assertIn("from-a", text); self.assertIn("from-b", text)
+        self.assertNotIn("from-store", text, "a per-agent list replaces the store index, it does not add to it")
+        self.assertIn("from-store", identity.index_text(store, cfg, agent="Other"))
+
+    def test_agents_fallback_store_root_gives_an_unmapped_name_its_own_store(self):
+        os.makedirs(os.path.join(self.project, "team", "worker", "memory"))
+        cfg = self._cfg({"agents": {"Joule": "team/worker/memory"}, "agents_fallback": "store_root",
+                         "store_root": os.path.join(self.tmp, "stores")})
+        res = identity.resolve(cfg, self.project, transcript=None, env={"DREAMING_AGENT": "pm-agent"}, run=_git(""),
+                               hook={"scratchpad_dir": os.path.join(self.tmp, "scratch")})
+        self.assertFalse(res.scratch)
+        self.assertEqual(os.path.normcase(res.store), os.path.normcase(os.path.join(self.tmp, "stores", "pm-agent")))
+        self.assertIn("agents_fallback", res.reason)
+        self.assertFalse(os.path.exists(res.store), "resolve never creates it; the sleep does")
+        # the default is still scratch: a map is a statement of who lives here
+        cfg = self._cfg({"agents": {"Joule": "team/worker/memory"}})
+        res = identity.resolve(cfg, self.project, transcript=None, env={"DREAMING_AGENT": "pm-agent"}, run=_git(""),
+                               hook={"scratchpad_dir": os.path.join(self.tmp, "scratch")})
+        self.assertTrue(res.scratch)

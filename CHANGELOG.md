@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.0 - 2026-09-23
+
+Four asks from a field report on 0.4.0's first promotion pass (20 lessons, 1 kept: 11 restated
+the house's written rules, which the index does not carry; 1 contradicted a standing ruling).
+5 tests added, 139 pass.
+
+- `indexes`: a per-agent list of index files, absolute or ~-relative, several allowed. For that
+  agent it replaces `<store>/<index_file>`; a lane whose real index lives outside its store no
+  longer needs a hard link, and the tension filter and `extends:` see every index it names.
+- `agents_fallback: "store_root"` (default stays `"scratch"`): with a map, an unmapped name goes
+  to `store_root/<name>` instead of scratch. Since 0.4.0 routine lanes appear by name at run
+  time, and a map naming only the interactive agent would otherwise send every routine's dream
+  to scratch. The default is unchanged because a map is a statement of who lives here.
+- `known_rules`: files whose content the reduce is told is ALREADY HELD (a rules file, a
+  charter), bounded to a quarter of the reduce window with the head kept. A lesson that only
+  restates one comes back as relation `known` naming the file, rendered
+  `restates a known rule: <file>`, and counted in `sleep.log`. It is KEPT, never dropped by the
+  tool: the promoter drops it in one glance. The plugin never discards a lesson on the model's
+  verdict.
+- Every lesson carries `scope`: `observed` when the slice showed the rule holding, `generalised`
+  when it reaches past what the session showed (a sensible prior, a rule from one case).
+  Rendered as `scope: generalised - ... test it hardest`, for the promoter to check against the
+  standing rulings first. The one lesson in the report that contradicted a ruling was this kind.
+- The promote skill notes that dreams dated before an upgrade to 0.4.0 may be routine runs
+  filed under the interactive agent: evidence, not a brief to resume.
+
 ## 0.4.0 - 2026-09-23
 
 Dreams from ROUTINES: a scheduled run dreams into its own lane and its next run picks the dream

@@ -25,7 +25,7 @@ if PLUGIN not in sys.path:
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-from dreaming import cli, distill as sd, extract as sx, identity, sleep as sl  # noqa: E402
+from dreaming import cli, config, distill as sd, extract as sx, identity, sleep as sl  # noqa: E402
 from dreaming.engines import EngineResult  # noqa: E402
 from test_distill import INDEX_TEXT, MAP_JSON, REDUCE_JSON  # noqa: E402
 from test_extract import _read, _rec, write_fixture  # noqa: E402
@@ -275,6 +275,29 @@ class SleepRunTests(unittest.TestCase):
         rc, out = self._main("notice", "--hook-json", json.dumps({"session_id": "run-two", "transcript_path": sched}))
         self.assertIn("Carry-over from your previous run", out)
         self.assertIn("task pm-agent", out)
+
+    def test_known_rules_files_reach_the_reduce_and_restatements_are_counted(self):
+        rules = os.path.join(self.tmp, "AGENTS.md")
+        with open(rules, "w", encoding="utf-8") as fh:
+            fh.write("RULE ONE: read the exit code of the command, not the pipe." + chr(10))
+        with open(os.path.join(self.project, ".dreaming.json"), "w", encoding="utf-8") as fh:
+            json.dump({"agents": {"Joule": "team/worker/memory"}, "known_rules": [rules]}, fh)
+        seen = {}
+
+        def fn(system, user, *, max_tokens=4000, timeout=None):
+            if system is sd.REDUCE_SYSTEM:
+                seen["user"] = user
+                full = json.loads(REDUCE_JSON)
+                full["lessons"].append({"title": "Read the exit code", "why": "w", "how_to_apply": "h",
+                                        "provenance": [], "relation": "known", "extends": "AGENTS.md"})
+                return EngineResult(True, json.dumps(full), "fake", None)
+            return EngineResult(True, MAP_JSON, "fake", None)
+
+        cfg = config.load(project_dir=self.project, env={}, home=self.home)
+        out = self._run(engine=fn, known_rules=cli.known_rules_text(cfg))
+        self.assertIn("RULE ONE", seen["user"])
+        self.assertEqual(out["lessons"], 3, "a restatement is kept, not dropped")
+        self.assertIn("1 lesson(s) restate known rules", _read(os.path.join(out["folder"], "sleep.log")))
 
     def test_truncated_reduce_is_named_in_the_log(self):
         full = json.loads(REDUCE_JSON)

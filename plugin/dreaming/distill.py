@@ -40,27 +40,34 @@ Return ONLY a JSON object with exactly these keys, IN THIS ORDER:
 {"state": {"current_task": str, "exact_state": str, "next_step": str,
            "uncommitted_decisions": [str], "files_in_context": [str]},
  "tensions": [{"claim": str, "existing_slug": str, "existing_line": str, "side_a": str, "side_b": str}],
- "lessons": [{"title": str, "why": str, "how_to_apply": str, "provenance": [uuid, ...]}]}
+ "lessons": [{"title": str, "why": str, "how_to_apply": str, "provenance": [uuid, ...],
+              "scope": "observed" | "generalised"}]}
 STATE is what the agent would need to resume this exact work after forgetting everything.
 A TENSION is a place where this slice contradicts or complicates something the agent seemed to
 already believe. Give both sides. Do not resolve it.
 A LESSON is a durable, reusable rule the agent learned or re-learned in this slice - a mistake and
 its guard, a measured fact that reversed a belief, a method that worked. Not a summary of events.
 Title it as a sentence a future reader can act on. Cite the turn uuids it came from.
+scope is "observed" when the slice itself showed the rule holding, "generalised" when the lesson
+reaches past what the slice showed (a sensible prior, a rule inferred from one case).
 At most 8 lessons per slice; keep every string under 300 characters. If a slice has none of
 something, use []. No prose outside the JSON. ASCII only."""
 
 REDUCE_SYSTEM = """You are the sleeping mind of a software agent, merging the notes from every slice of its day.
 You will be given: (1) the agent's MEMORY INDEX, one existing lesson per line as 'slug - headline';
-(2) the per-slice notes as JSON. Return ONLY a JSON object with exactly these keys, IN THIS ORDER:
+(2) the per-slice notes as JSON; (3) sometimes KNOWN RULES, the agent's standing rules files,
+which the agent already holds. Return ONLY a JSON object with exactly these keys, IN THIS ORDER:
 {"state": {"current_task": str, "exact_state": str, "next_step": str,
            "uncommitted_decisions": [str], "files_in_context": [str]},
  "tensions": [{"claim": str, "existing_slug": str, "existing_line": str, "side_a": str, "side_b": str}],
  "lessons": [{"title": str, "why": str, "how_to_apply": str, "provenance": [uuid, ...],
-              "relation": "new" | "extends", "extends": slug-or-null}]}
+              "scope": "observed" | "generalised",
+              "relation": "new" | "extends" | "known", "extends": slug-or-file-or-null}]}
 The final state is the LATEST resume state across slices - write it first and completely.
 Merge duplicate lessons. For each lesson, if the index already holds an entry ABOUT the same rule,
-set relation "extends" and name that slug; otherwise "new". If a lesson CONTRADICTS an index
+set relation "extends" and name that slug; if a lesson only RESTATES one of the KNOWN RULES, set
+relation "known" and name the rule file; otherwise "new". Keep each lesson's scope; a lesson that
+reaches past what the slices showed is "generalised". If a lesson CONTRADICTS an index
 entry, do not list it as a lesson - file it under tensions with both sides and the entry's slug
 and line. Keep the day's own words where possible. At most 12 lessons; keep every string under
 300 characters. No prose outside the JSON. ASCII only."""
@@ -146,8 +153,9 @@ def _clean_lessons(raw):
             "why": str(item.get("why") or "").strip(),
             "how_to_apply": str(item.get("how_to_apply") or "").strip(),
             "provenance": [str(p) for p in prov] if isinstance(prov, list) else [],
-            "relation": "extends" if item.get("relation") == "extends" else "new",
+            "relation": item.get("relation") if item.get("relation") in ("extends", "known") else "new",
             "extends": (str(item.get("extends")) if item.get("extends") else None),
+            "scope": item.get("scope") if item.get("scope") in ("observed", "generalised") else "",
         })
     return out
 
@@ -230,6 +238,20 @@ def _bound_index(index_text, budget):
     return "\n".join(kept) + "\n(index truncated to %d of %d lines to fit the window)\n" % (len(kept), len(lines))
 
 
+def _bound_head(text, budget):
+    """Whole lines from the HEAD of a rules file, at most `budget` characters, with a marker."""
+    if len(text) <= budget:
+        return text
+    lines = text.splitlines()
+    kept, size = [], 0
+    for line in lines:
+        if size + len(line) + 1 > budget:
+            break
+        kept.append(line)
+        size += len(line) + 1
+    return chr(10).join(kept) + chr(10) + "(rules truncated to %d of %d lines to fit the window)" % (len(kept), len(lines)) + chr(10)
+
+
 def _union(maps, **extra):
     """The reduce's honest fallback: every map's lessons and tensions, the last non-empty state."""
     state = next((m["state"] for m in reversed(maps) if m.get("state", {}).get("current_task")), None)
@@ -240,28 +262,30 @@ def _union(maps, **extra):
     return out
 
 
-def reduce_maps(engine, maps, index_text, *, max_chars=DEFAULT_CHUNK_CHARS, timeout=None, _depth=0):
+def reduce_maps(engine, maps, index_text, *, max_chars=DEFAULT_CHUNK_CHARS, timeout=None, known_rules="", _depth=0):
     """One reduce call; halves when the payload would not fit, and GIVES UP to the union of the
     maps when halving stops shrinking it. Review finding 2026-09-22: two max-size reduce replies
     plus a large index can exceed the window after every merge, and the naive recursion made
     300 engine calls before it was stopped - each up to 900 s live, i.e. a hook that never
     returns. Depth is capped and a merge that is no smaller than its input is not retried."""
     index_text = _bound_index(index_text, max_chars // 3)
+    known_rules = _bound_head(known_rules or "", max_chars // 4)
     payload = _maps_payload(maps)
-    if len(payload) + len(index_text) > max_chars:
+    if len(payload) + len(index_text) + len(known_rules) > max_chars:
         if len(maps) <= 1 or _depth >= 3:
             return _union(maps)
         mid = len(maps) // 2
-        left = reduce_maps(engine, maps[:mid], index_text, max_chars=max_chars, timeout=timeout, _depth=_depth + 1)
-        right = reduce_maps(engine, maps[mid:], index_text, max_chars=max_chars, timeout=timeout, _depth=_depth + 1)
+        left = reduce_maps(engine, maps[:mid], index_text, max_chars=max_chars, timeout=timeout, known_rules=known_rules, _depth=_depth + 1)
+        right = reduce_maps(engine, maps[mid:], index_text, max_chars=max_chars, timeout=timeout, known_rules=known_rules, _depth=_depth + 1)
         merged_payload = _maps_payload([left, right])
         if len(merged_payload) >= len(payload) or len(merged_payload) + len(index_text) > max_chars:
             return _union([left, right], halved=1 + left.get("halved", 0) + right.get("halved", 0))
-        merged = reduce_maps(engine, [left, right], index_text, max_chars=max_chars, timeout=timeout, _depth=_depth + 1)
+        merged = reduce_maps(engine, [left, right], index_text, max_chars=max_chars, timeout=timeout, known_rules=known_rules, _depth=_depth + 1)
         merged["halved"] = 1 + left.get("halved", 0) + right.get("halved", 0) + merged.get("halved", 0)
         return merged
-    user = "%s\nMEMORY INDEX:\n%s\n\nPER-SLICE NOTES (JSON):\n%s\n%s\n\n%s" % (
-        PAYLOAD_OPEN, index_text, payload, PAYLOAD_CLOSE, JSON_REMINDER)
+    rules_block = ("\nKNOWN RULES (already held; a lesson that only restates one is relation \"known\"):\n%s\n" % known_rules) if known_rules else ""
+    user = "%s\nMEMORY INDEX:\n%s\n%s\nPER-SLICE NOTES (JSON):\n%s\n%s\n\n%s" % (
+        PAYLOAD_OPEN, index_text, rules_block, payload, PAYLOAD_CLOSE, JSON_REMINDER)
     # 4000, not more: ai_client.chat_completion clamps to 4096 anyway, and the prompt's own size
     # limits are what keep the reply under it.
     res = _call(engine, REDUCE_SYSTEM, user, max_tokens=4000, timeout=timeout)
@@ -321,6 +345,10 @@ def render_lesson(lesson, meta):
     lines = [_header(meta), "# %s" % lesson["title"], ""]
     if lesson.get("relation") == "extends" and lesson.get("extends"):
         lines += ["extends: %s" % lesson["extends"], ""]
+    elif lesson.get("relation") == "known":
+        lines += ["restates a known rule: %s" % (lesson.get("extends") or "(file not named)"), ""]
+    if lesson.get("scope") == "generalised":
+        lines += ["scope: generalised - reaches past what the session showed; test it hardest", ""]
     lines += ["**Why:** %s" % (lesson.get("why") or "(not stated)"), "",
               "**How to apply:** %s" % (lesson.get("how_to_apply") or "(not stated)"), "",
               "Provenance: sleep %s, session %s, turns %s" % (

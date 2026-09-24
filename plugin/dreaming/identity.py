@@ -126,6 +126,10 @@ def resolve(cfg, cwd, transcript=None, env=None, run=subprocess.run, hook=None):
                                   "mapped store for %s is missing at %s; not creating it; dreaming into scratch" % (cand, path))
             return Resolution(cand, src, path, False, "%s (%s) -> %s" % (cand, src, path))
         tried = ", ".join("%s (%s)" % (c, s) for c, s in candidates if s != "default")
+        if str(cfg.get("agents_fallback") or "scratch") == "store_root":
+            store = os.path.normpath(os.path.join(str(cfg.get("store_root") or ""), name))
+            return Resolution(name, source, store, False,
+                              "none of [%s] is in the agents map; agents_fallback store_root -> %s" % (tried or "no name found", store))
         return Resolution(name, source, scratch_root(hook, cfg), True,
                           "none of [%s] is in the agents map; dreaming into scratch" % (tried or "no name found"))
     store = os.path.normpath(os.path.join(str(cfg.get("store_root") or ""), name))
@@ -142,16 +146,34 @@ def ensure_store(res):
     return res.store
 
 
-def index_text(store, cfg):
-    """One bounded line per non-blank line of <store>/<index_file>, in file order; '' if absent."""
-    path = os.path.join(store, str(cfg.get("index_file") or "MEMORY.md"))
+def _index_lines(path):
     if not os.path.isfile(path):
-        return ""
+        return []
     out = []
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
-            line = line.rstrip("\n")
+            line = line.rstrip(chr(10))
             if not line.strip():
                 continue
             out.append(line if len(line) <= INDEX_LINE_CAP else line[:INDEX_LINE_CAP - 3].rstrip() + "...")
-    return "\n".join(out) + ("\n" if out else "")
+    return out
+
+
+def index_paths(store, cfg, agent=None):
+    """The index file(s) for this agent: the `indexes` map's list when it names the agent (absolute
+    or ~-relative, several allowed - a lane whose real index lives outside its store), else the
+    one <store>/<index_file>."""
+    listed = (cfg.get("indexes") or {}).get(agent or "")
+    if isinstance(listed, str):
+        listed = [listed]
+    if listed:
+        return [os.path.expanduser(str(p)) for p in listed]
+    return [os.path.join(store, str(cfg.get("index_file") or "MEMORY.md"))]
+
+
+def index_text(store, cfg, agent=None):
+    """One bounded line per non-blank line of every index file, in order; '' if none exist."""
+    out = []
+    for path in index_paths(store, cfg, agent):
+        out.extend(_index_lines(path))
+    return chr(10).join(out) + (chr(10) if out else "")

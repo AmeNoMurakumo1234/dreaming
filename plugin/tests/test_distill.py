@@ -249,3 +249,41 @@ class DistillTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KnownRulesAndScopeTests(unittest.TestCase):
+    """Field report on 0.4.0: 11 of 20 lessons restated rules already written in the house's rules
+    files, which the index does not carry; and one 'sensible generic prior' contradicted a standing
+    ruling. The reduce is told the rules; the plugin never discards on the model's verdict - a
+    restatement stays in the dream, labelled, for the promoter to drop in one glance."""
+
+    def test_reduce_prompt_carries_known_rules_bounded_and_a_restatement_keeps_its_label(self):
+        seen = {}
+
+        def capture(system, user, *, max_tokens=4000, timeout=None):
+            seen["user"] = user
+            full = json.loads(REDUCE_JSON)
+            full["lessons"].append({"title": "Read the exit code of the command, not the pipe", "why": "w",
+                                    "how_to_apply": "h", "provenance": [], "relation": "known",
+                                    "extends": "AGENTS.md"})
+            return EngineResult(True, json.dumps(full), "fake", None)
+
+        maps = [sd.map_chunk(_engine_returning(MAP_JSON), "c", 1, 1)]
+        rules = "RULE ONE: read the exit code of the command, not the pipe." + chr(10) + ("filler line" + chr(10)) * 400
+        out = sd.reduce_maps(capture, maps, INDEX_TEXT, known_rules=rules, max_chars=8000)
+        self.assertIn("KNOWN RULES", seen["user"])
+        self.assertIn("RULE ONE", seen["user"])
+        self.assertLess(seen["user"].count("filler line"), 400, "the rules are bounded like the index")
+        rel = {l["title"]: (l["relation"], l["extends"]) for l in out["lessons"]}
+        self.assertEqual(rel["Read the exit code of the command, not the pipe"], ("known", "AGENTS.md"))
+
+    def test_lesson_scope_is_asked_for_kept_and_rendered(self):
+        self.assertIn('"scope"', sd.MAP_SYSTEM)
+        self.assertIn('"scope"', sd.REDUCE_SYSTEM)
+        cleaned = sd._clean_lessons([{"title": "t", "scope": "generalised"}, {"title": "u", "scope": "observed"}, {"title": "v"}])
+        self.assertEqual([l["scope"] for l in cleaned], ["generalised", "observed", ""])
+        meta = {"when": "w", "agent": "a", "session_id": "s", "engine": "e"}
+        self.assertIn("scope: generalised", sd.render_lesson(cleaned[0], meta))
+        self.assertNotIn("scope:", sd.render_lesson(cleaned[2], meta))
+        known = dict(cleaned[1], relation="known", extends="AGENTS.md")
+        self.assertIn("restates a known rule: AGENTS.md", sd.render_lesson(known, meta))

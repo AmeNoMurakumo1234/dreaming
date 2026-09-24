@@ -35,7 +35,7 @@ it (default 50 minutes) stops the work early and writes what it has.
 | `map/<n>.json` | the model's notes per slice |
 | `reduce.json` | the merged notes, matched against your index |
 | `brief.md` | the resume brief: Current Task, Exact State, Next Step, Uncommitted Decisions, Files Currently In Context - a COPY of the newest slice's state (since 0.3.2 the reduce never chooses it) |
-| `lessons/<slug>.md` | one candidate lesson each: title, why, how to apply, provenance (session and turn uuids); `extends: <slug>` when it extends an entry you already hold |
+| `lessons/<slug>.md` | one candidate lesson each: title, why, how to apply, provenance (session and turn uuids); `extends: <slug>` when it extends an entry you already hold; `restates a known rule: <file>` when it only restates a `known_rules` file (kept for you to drop, never dropped by the tool); `scope: generalised` when it reaches past what the session showed (test it hardest) |
 | `tensions.md` | contradictions with your existing entries, both sides stated, deliberately NOT resolved |
 | `sleep.log` | the run: engine, per-stage timings, every `degraded: <reason>` line, and the `watermark:` uuid the next sleep in this session continues from |
 
@@ -61,6 +61,9 @@ variables `DREAMING_AGENT`, `DREAMING_DISABLED=1`, `DREAMING_STORE_ROOT`, `DREAM
   "store_root": "~/.dreaming/stores",
   "agent": "auto",
   "agents": {},
+  "agents_fallback": "scratch",
+  "indexes": {},
+  "known_rules": [],
   "identity_order": ["scheduled_task", "env", "config", "transcript", "git", "default"],
   "engines": ["openai_compatible", "claude", "mechanical"],
   "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "", "api_key_env": "DREAMING_API_KEY",
@@ -121,7 +124,10 @@ worked) or point at a server that does not split.
    agent-name record carries the SESSION TITLE - and taking it would send a real agent to scratch
    while `git` one step down names them correctly. If no source is mapped, scratch, and the
    printed reason lists every candidate tried.
-2. Store: if `agents` is non-empty, the mapped path or scratch; else `store_root/<agent>`.
+2. Store: if `agents` is non-empty, the mapped path, else scratch - or `store_root/<agent>` when
+   `agents_fallback` is `"store_root"` (opt-in: routine lanes appear by name at run time, and a
+   map naming only the interactive agent would otherwise send every routine's dream to scratch);
+   without a map, `store_root/<agent>`.
 3. A mapped store whose directory is missing is NEVER created: scratch plus a printed reason. A
    lost store must not be silently rebuilt by the tool that serves it.
 4. An unmapped default store is created by the sleep that first writes into it, and by nothing
@@ -129,8 +135,18 @@ worked) or point at a server that does not split.
 5. Scratch is the hook's scratchpad directory when it gives one, else `<tempdir>/dreaming/`.
 6. The index is `<store>/<index_file>` when present, one bounded line per entry, and the reduce
    uses it to mark each lesson `new` or `extends: <slug>`. `index_file` may be an ABSOLUTE path
-   for a lane whose real index lives outside its store. Without an index no tension is filed,
-   and with one a tension must name an entry in it (0.3.2).
+   for a lane whose real index lives outside its store, and `indexes` maps an agent to a LIST of
+   index files (absolute or ~-relative) that replaces it for that agent. Without an index no
+   tension is filed, and with one a tension must name an entry in it (0.3.2).
+
+## Known rules: what the reduce is told you already hold
+
+`known_rules` lists files (absolute, ~-relative, or relative to the project) whose content goes
+to the reduce as ALREADY HELD - a rules file, a lane charter - bounded to a quarter of the
+reduce window with the head kept, so put the rules first in the file. Field measurement: of
+twenty lessons in one promotion pass, eleven restated rules written in such files, which the
+index does not carry. A lesson that only restates one comes back labelled `known`, is counted in
+`sleep.log`, and is KEPT: the tool lists, the mind drops.
 
 ## Routines: a lane's dream, picked up by the lane
 

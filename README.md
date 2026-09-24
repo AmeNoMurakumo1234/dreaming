@@ -63,7 +63,9 @@ environment variables on top. The two settings most people touch:
 }
 ```
 
-`openai_compatible` can also be a list of servers in preference order (the first that answers
+`known_rules` names files (a rules file, a charter) the reduce is told you already hold, so a
+lesson that only restates one arrives labelled for you to drop; `indexes` maps an agent to the
+index files that stand in for the store's own. `openai_compatible` can also be a list of servers in preference order (the first that answers
 is used, a dead one is skipped), and each server takes a `max_tokens` for reasoning models that
 spend the reply budget thinking. A repository with several agents sharing one clone maps each to
 its own store:

@@ -15,6 +15,17 @@ DEFAULTS = {
     "store_root": "~/.dreaming/stores",
     "agent": "auto",
     "agents": {},
+    # With a map, an unmapped name goes to scratch (a map is a statement of who lives here).
+    # "store_root" instead sends it to store_root/<name>: since 0.4.0 routine lanes appear by
+    # name at run time, and a map naming only the interactive agent would otherwise undo that.
+    "agents_fallback": "scratch",
+    # Per-agent index files, absolute or ~-relative, several allowed; replaces <store>/<index_file>
+    # for that agent. A lane whose real index lives outside its store, or is more than one file.
+    "indexes": {},
+    # Files whose content the reduce is told is ALREADY HELD (a rules file, a charter): a lesson
+    # that restates one comes back labelled relation "known" and is kept for the promoter to
+    # drop, never dropped by the tool. Bounded to a quarter of the reduce window, head kept.
+    "known_rules": [],
     "identity_order": ["scheduled_task", "env", "config", "transcript", "git", "default"],
     "engines": ["openai_compatible", "claude", "mechanical"],
     "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "",

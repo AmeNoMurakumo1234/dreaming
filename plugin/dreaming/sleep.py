@@ -116,7 +116,7 @@ def _write(path, text):
 def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engine_name="mechanical",
               include_thinking=False, budget_seconds=DEFAULT_BUDGET_SECONDS, index_text="",
               now=None, clock=time.monotonic, chunk_chars=DEFAULT_CHUNK_CHARS, cap_chars=DEFAULT_CAP_CHARS,
-              result_head=400, min_call_seconds=MIN_CALL_SECONDS, task=None):
+              result_head=400, min_call_seconds=MIN_CALL_SECONDS, task=None, known_rules=""):
     now = now or _dt.datetime.now()
     folder = _fresh_folder(out_root, session_id, now)
     log = _Log(os.path.join(folder, "sleep.log"))
@@ -184,7 +184,8 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
                 _write(os.path.join(folder, "reduce.json"), json.dumps(r, ensure_ascii=True, indent=1))
                 lessons, tensions, state = r["lessons"], r["tensions"], r["state"]
             elif maps:
-                r = sd.reduce_maps(engine, maps, index_text, max_chars=chunk_chars, timeout=int(remaining))
+                r = sd.reduce_maps(engine, maps, index_text, max_chars=chunk_chars, timeout=int(remaining),
+                                   known_rules=known_rules)
                 _write(os.path.join(folder, "reduce.json"), json.dumps(r, ensure_ascii=True, indent=1))
                 if r.get("gave_up"):
                     log.degrade("reduce input too large for the window; using the union of the map passes")
@@ -197,6 +198,9 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
                     if r.get("truncated"):
                         log.degrade("reduce reply truncated (provider cap); salvaged %d lesson(s)" % len(lessons))
                     log.write("reduce | lessons %d | tensions %d | halved %d" % (len(lessons), len(tensions), r["halved"]))
+                    known = sum(1 for l in lessons if l.get("relation") == "known")
+                    if known:
+                        log.write("%d lesson(s) restate known rules (kept, labelled; the promoter drops them)" % known)
             # The resume state is a COPY of the newest slice's, never the reduce's choice. Two
             # field measurements on 2026-09-23: the reduce re-emitted the second-newest slice's
             # state verbatim while the newest slice held the right one; and on another run the
