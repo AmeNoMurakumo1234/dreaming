@@ -50,6 +50,13 @@ its guard, a measured fact that reversed a belief, a method that worked. Not a s
 Title it as a sentence a future reader can act on. Cite the turn uuids it came from.
 scope is "observed" when the slice itself showed the rule holding, "generalised" when the lesson
 reaches past what the slice showed (a sensible prior, a rule inferred from one case).
+A lesson is never board state: not "X is a known issue", not "ignore Y until Z lands", not the
+status of a ticket or a test - that is STATE and belongs in the state object, and promoted as a
+lesson it becomes a standing permission that goes stale within the hour. How a tool's interface
+works (a flag, an argument order, a required prior step) is not a lesson unless it cost more than
+one failed call in this slice.
+A tension is between a belief the agent HELD and what the day showed - never a bug's before-fix
+and after-fix behaviour set against each other; a fix that landed settled it.
 At most 8 lessons per slice; keep every string under 300 characters. If a slice has none of
 something, use []. No prose outside the JSON. ASCII only."""
 
@@ -67,7 +74,13 @@ The final state is the LATEST resume state across slices - write it first and co
 Merge duplicate lessons. For each lesson, if the index already holds an entry ABOUT the same rule,
 set relation "extends" and name that slug; if a lesson only RESTATES one of the KNOWN RULES, set
 relation "known" and name the rule file; otherwise "new". Keep each lesson's scope; a lesson that
-reaches past what the slices showed is "generalised". If a lesson CONTRADICTS an index
+reaches past what the slices showed is "generalised".
+A lesson is never board state: not "X is a known issue", not "ignore Y until Z lands", not the
+status of a ticket or a test - that is STATE and belongs in the state object, and promoted as a
+lesson it becomes a standing permission that goes stale within the hour. How a tool's interface
+works (a flag, an argument order, a required prior step) is not a lesson unless it cost more than
+one failed call in this slice.
+If a lesson CONTRADICTS an index
 entry, do not list it as a lesson - file it under tensions with both sides and the entry's slug
 and line. Keep the day's own words where possible. At most 12 lessons; keep every string under
 300 characters. No prose outside the JSON. ASCII only."""
@@ -156,6 +169,7 @@ def _clean_lessons(raw):
             "relation": item.get("relation") if item.get("relation") in ("extends", "known") else "new",
             "extends": (str(item.get("extends")) if item.get("extends") else None),
             "scope": item.get("scope") if item.get("scope") in ("observed", "generalised") else "",
+            "flags": [],
         })
     return out
 
@@ -180,6 +194,75 @@ def filter_tensions(tensions, index_text):
     kept = [t for t in tensions if str(t.get("existing_slug") or "").strip()
             and str(t.get("existing_slug")).strip() in index_text]
     return kept, len(tensions) - len(kept)
+
+
+_BOARD_STATE = re.compile(r"known issue|\bignore\b|\bis in_qa\b|\bis in qa\b|\bwave (it|the red) through\b", re.IGNORECASE)
+_STOP = {"a", "an", "the", "is", "are", "was", "were", "be", "not", "never", "of", "to", "in", "on", "at",
+         "for", "and", "or", "it", "its", "that", "this", "as", "by", "with", "when", "than", "can", "cannot"}
+
+
+def _title_tokens(text):
+    return {w for w in re.findall(r"[a-z0-9][a-z0-9_.-]*", str(text or "").lower()) if w not in _STOP}
+
+
+def _index_entries(index_text):
+    """(slug, headline) per index line, tolerant of '- [slug](slug.md) - headline',
+    '- slug - headline' and '  slug  -  headline'."""
+    out = []
+    for line in str(index_text or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("- "):
+            s = s[2:].strip()
+        if s.startswith("["):
+            close = s.find("]")
+            if close < 0:
+                continue
+            slug = s[1:close].strip()
+            rest = s[close + 1:]
+            paren = rest.find(")")
+            rest = rest[paren + 1:] if paren >= 0 else rest
+        else:
+            parts = s.split(None, 1)
+            slug, rest = parts[0], (parts[1] if len(parts) > 1 else "")
+        rest = rest.strip()
+        if rest.startswith("-"):
+            rest = rest[1:].strip()
+        if slug:
+            out.append((slug, rest))
+    return out
+
+
+def flag_lessons(lessons, index_text, *, overlap=0.5):
+    """Label, never drop. Two rules a machine can apply that the model kept missing (field
+    report 2026-09-24, 2 of 12 lessons kept): a lesson phrased as board state (a known issue,
+    an instruction to ignore something) gets flag 'board_state'; a title whose words overlap an
+    index headline by `overlap` or more is labelled extends: <slug> with flag 'restates_index'.
+    Returns (lessons, counts)."""
+    entries = [(slug, _title_tokens(head)) for slug, head in _index_entries(index_text)]
+    counts = {"board_state": 0, "restates_index": 0}
+    for lesson in lessons:
+        flags = list(lesson.get("flags") or [])
+        text = "%s %s" % (lesson.get("title", ""), lesson.get("how_to_apply", ""))
+        if _BOARD_STATE.search(text):
+            flags.append("board_state")
+            counts["board_state"] += 1
+        mine = _title_tokens(lesson.get("title", ""))
+        best, best_slug = 0.0, None
+        for slug, theirs in entries:
+            if not mine or not theirs:
+                continue
+            score = len(mine & theirs) / float(len(mine | theirs))
+            if score > best:
+                best, best_slug = score, slug
+        if best_slug and best >= overlap:
+            flags.append("restates_index")
+            counts["restates_index"] += 1
+            if lesson.get("relation") != "known":
+                lesson["relation"], lesson["extends"] = "extends", best_slug
+        lesson["flags"] = flags
+    return lessons, counts
 
 
 def _empty(raw, **extra):
@@ -349,6 +432,12 @@ def render_lesson(lesson, meta):
         lines += ["restates a known rule: %s" % (lesson.get("extends") or "(file not named)"), ""]
     if lesson.get("scope") == "generalised":
         lines += ["scope: generalised - reaches past what the session showed; test it hardest", ""]
+    if "board_state" in (lesson.get("flags") or []):
+        lines += ["flag: reads as board state - a known issue, or an instruction to ignore something; "
+                  "that is the state of the board, not a lesson, and promoted it becomes a standing "
+                  "permission that goes stale. Drop it.", ""]
+    if "restates_index" in (lesson.get("flags") or []):
+        lines += ["flag: the title matches an index entry by its words; fold it in or drop it", ""]
     lines += ["**Why:** %s" % (lesson.get("why") or "(not stated)"), "",
               "**How to apply:** %s" % (lesson.get("how_to_apply") or "(not stated)"), "",
               "Provenance: sleep %s, session %s, turns %s" % (

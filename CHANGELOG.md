@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.2 - 2026-09-24
+
+From a routine's field report after three wakes (2 of 12 lessons kept; one would have done harm).
+4 tests added, 148 pass.
+
+- The prompts now say a lesson is never board state - not "X is a known issue", not "ignore Y
+  until Z lands", not a ticket's status - because promoted, that becomes a standing permission to
+  wave a red through that goes stale within the hour. Tool-interface trivia is not a lesson unless
+  it cost more than one failed call. A tension is between a HELD belief and the day, never a
+  bug's before-fix and after-fix behaviour.
+- The write stage LABELS what a rule can recognise, and never drops on it: a lesson phrased as
+  board state gets `flag: reads as board state ... Drop it.`; a title whose words overlap an
+  index headline by half or more is labelled `extends: <slug>` whatever the model said. Both are
+  counted in `sleep.log`.
+
 ## 0.5.1 - 2026-09-24
 
 A privacy fix. In a shared clone every scheduled specialist was told, at startup, to promote and

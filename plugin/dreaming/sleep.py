@@ -218,7 +218,13 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
         log.write(traceback.format_exc())
         state = state or sd.mechanical_state(turns)
 
-    # 4. write - a tension must name an entry the mind actually holds
+    # 4. write - label what a rule can recognise (never drop on it), and a tension must name an
+    # entry the mind actually holds
+    lessons, flagged = sd.flag_lessons(lessons, index_text)
+    if flagged["board_state"]:
+        log.write("%d lesson(s) read as board state (kept, flagged; the promoter drops them)" % flagged["board_state"])
+    if flagged["restates_index"]:
+        log.write("%d lesson(s) match an index entry by title (labelled extends)" % flagged["restates_index"])
     tensions, dropped = sd.filter_tensions(tensions, index_text)
     if dropped and not index_text:
         log.degrade("no index; tensions not filed (%d dropped)" % dropped)

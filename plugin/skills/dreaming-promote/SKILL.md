@@ -47,6 +47,10 @@ writes your index precisely so that this step cannot be skipped by accident.
 - A dream dated before your upgrade to 0.4.0 may be a ROUTINE's run filed under the interactive
   agent (routines had no identity of their own until then). Read it as evidence; do not promote
   its brief, which is a routine's resume state, not yours.
+- A lesson marked `flag: reads as board state` (0.5.2) is the state of the board written as a rule
+  - a known issue, an instruction to ignore a red until something lands. Drop it: a routine's
+  field report found one that, promoted, would have kept telling it to wave a red test through
+  an hour after the issue was fixed. The brief carries state; lessons never do.
 - A lesson marked `restates a known rule: <file>` (0.5.0) is the model saying your rules files
   already hold it. Confirm in one glance and drop it; it is kept in the dream precisely so that
   the drop is yours, not the tool's. A lesson marked `scope: generalised` reaches past what the

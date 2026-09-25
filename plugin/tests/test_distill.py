@@ -287,3 +287,47 @@ class KnownRulesAndScopeTests(unittest.TestCase):
         self.assertNotIn("scope:", sd.render_lesson(cleaned[2], meta))
         known = dict(cleaned[1], relation="known", extends="AGENTS.md")
         self.assertIn("restates a known rule: AGENTS.md", sd.render_lesson(known, meta))
+
+
+class LessonHygieneTests(unittest.TestCase):
+    """Field report from a routine's three wakes (2026-09-24): 2 of 12 lessons kept. One would have
+    done harm - 'the pairsheet failure is known issue 1984, so ignore it when it is the only red' is
+    board STATE, and promoted it becomes a standing permission to wave a red through that goes stale
+    within the hour. Others restated held entries the reduce had been shown, or were tool trivia. The
+    prompts now say so; the write stage LABELS what a rule can recognise, and never drops it."""
+
+    def test_prompts_forbid_board_state_tool_trivia_and_before_after_tensions(self):
+        for prompt in (sd.MAP_SYSTEM, sd.REDUCE_SYSTEM):
+            self.assertIn("never board state", prompt)
+            self.assertIn("known issue", prompt)
+            self.assertIn("failed call", prompt)
+        self.assertIn("before-fix", sd.MAP_SYSTEM)
+
+    def test_board_state_phrasing_is_flagged_not_dropped(self):
+        lessons = sd._clean_lessons([
+            {"title": "The pairsheet failure is known issue 1984, so ignore it when it is the only red",
+             "why": "w", "how_to_apply": "h"},
+            {"title": "Ignore the flaky lint until 2002 lands", "why": "w", "how_to_apply": "h"},
+            {"title": "A guard that ignores its own exit code is not a guard", "why": "w", "how_to_apply": "h"},
+        ])
+        out, counts = sd.flag_lessons(lessons, "")
+        self.assertEqual(len(out), 3, "labelled, never dropped")
+        self.assertIn("board_state", out[0]["flags"])
+        self.assertIn("board_state", out[1]["flags"])
+        self.assertEqual(out[2]["flags"], [], "a lesson ABOUT ignoring is not an instruction to ignore")
+        self.assertEqual(counts["board_state"], 2)
+        meta = {"when": "w", "agent": "a", "session_id": "s", "engine": "e"}
+        self.assertIn("flag: reads as board state", sd.render_lesson(out[0], meta))
+
+    def test_a_title_that_overlaps_an_index_headline_is_labelled_extends(self):
+        index = ("- a-piped-exit-code-is-not-a-verification - A piped exit code is not a verification" + chr(10) +
+                 "- a-count-with-no-denominator-lies-loudest-at-zero - A count with no denominator lies loudest at zero" + chr(10))
+        lessons = sd._clean_lessons([
+            {"title": "A piped exit code is never a verification of the command", "why": "w", "how_to_apply": "h"},
+            {"title": "Read the mtime of verify-last.log before trusting it", "why": "w", "how_to_apply": "h"},
+        ])
+        out, counts = sd.flag_lessons(lessons, index)
+        self.assertEqual((out[0]["relation"], out[0]["extends"]), ("extends", "a-piped-exit-code-is-not-a-verification"))
+        self.assertIn("restates_index", out[0]["flags"])
+        self.assertEqual((out[1]["relation"], out[1]["flags"]), ("new", []))
+        self.assertEqual(counts["restates_index"], 1)

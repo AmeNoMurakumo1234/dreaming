@@ -300,6 +300,15 @@ class SleepRunTests(unittest.TestCase):
         self.assertEqual(out["lessons"], 3, "a restatement is kept, not dropped")
         self.assertIn("1 lesson(s) restate known rules", _read(os.path.join(out["folder"], "sleep.log")))
 
+    def test_flagged_lessons_are_counted_in_the_log_and_kept(self):
+        full = json.loads(REDUCE_JSON)
+        full["lessons"].append({"title": "The pairsheet failure is known issue 1984, so ignore it when it is the only red",
+                                "why": "w", "how_to_apply": "h", "provenance": [], "relation": "new"})
+        out = self._run(engine=self._engine(reduce_text=json.dumps(full)))
+        self.assertEqual(out["lessons"], 3, "flagged lessons are kept for the promoter")
+        log = _read(os.path.join(out["folder"], "sleep.log"))
+        self.assertIn("1 lesson(s) read as board state", log)
+
     def test_truncated_reduce_is_named_in_the_log(self):
         full = json.loads(REDUCE_JSON)
         reordered = json.dumps({"state": full["state"], "tensions": [], "lessons": full["lessons"] * 6})

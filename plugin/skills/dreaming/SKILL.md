@@ -35,7 +35,7 @@ it (default 50 minutes) stops the work early and writes what it has.
 | `map/<n>.json` | the model's notes per slice |
 | `reduce.json` | the merged notes, matched against your index |
 | `brief.md` | the resume brief: Current Task, Exact State, Next Step, Uncommitted Decisions, Files Currently In Context - a COPY of the newest slice's state (since 0.3.2 the reduce never chooses it) |
-| `lessons/<slug>.md` | one candidate lesson each: title, why, how to apply, provenance (session and turn uuids); `extends: <slug>` when it extends an entry you already hold; `restates a known rule: <file>` when it only restates a `known_rules` file (kept for you to drop, never dropped by the tool); `scope: generalised` when it reaches past what the session showed (test it hardest) |
+| `lessons/<slug>.md` | one candidate lesson each: title, why, how to apply, provenance (session and turn uuids); `extends: <slug>` when it extends an entry you already hold; `restates a known rule: <file>` when it only restates a `known_rules` file (kept for you to drop, never dropped by the tool); `scope: generalised` when it reaches past what the session showed (test it hardest); `flag: reads as board state` when it is phrased as a known issue or an instruction to ignore something (drop it: promoted, it is a standing permission that goes stale); `flag: the title matches an index entry` when a rule matched it to an entry the model did not (fold in or drop) |
 | `tensions.md` | contradictions with your existing entries, both sides stated, deliberately NOT resolved |
 | `sleep.log` | the run: engine, per-stage timings, every `degraded: <reason>` line, and the `watermark:` uuid the next sleep in this session continues from |
 
