@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.3 - 2026-09-29
+
+Enforces the owner's 2026-09-25 ruling in the plugin itself: dreaming is for continuity ACROSS A
+COMPACTION, and dreams are never promoted into memory (keep rates 1/20, 2/12, 0/18 across three
+promotion passes). Until now the ruling lived in ONE repo's `.dreaming.json`; every other lane kept
+sleeping at session end and being told to promote, and it cost a wrong act (quantum-concepts 1974).
+3 tests added, 2 existing assertions changed, 150 pass.
+
+- `sessionend.enabled` now DEFAULTS TO FALSE. A project opts back in with its own config. Watched
+  red both ways: restoring the old default fails the config test and a CLI test that records
+  whether a spawn happened (a raising fake could not tell - `spawn_detached` swallows it).
+- The notice no longer says "awaiting promotion" or names the promote skill: it says how many dream
+  folders are left and to delete them. The re-seed tail after a compaction says the folder carries
+  THIS session and is not memory.
+- `dreaming-promote` is RETIRED to a stub that says delete, with an anti-fact.
+
+NOT DONE HERE - the rest of the approved 0.6.0 cut: brief-only sleeps (removing the lesson /
+tension / index / known-rules machinery), the sleep reading only the newest slice, a guard against
+a system payload becoming the brief, a reaper for old folders and watermark files, opus as the
+fallback default.
+
 ## 0.5.2 - 2026-09-24
 
 From a routine's field report after three wakes (2 of 12 lessons kept; one would have done harm).

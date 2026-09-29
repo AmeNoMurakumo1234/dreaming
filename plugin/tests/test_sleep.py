@@ -241,12 +241,12 @@ class SleepRunTests(unittest.TestCase):
         self.assertIn("GPU research", out)
         rc, out = self._main("notice", "--hook-json", json.dumps({"session_id": "interactive", "transcript_path": self.transcript}))
         self.assertNotIn("Carry-over", out, "an interactive session has no task and never receives a carry-over")
-        self.assertIn("awaiting promotion", out)
+        self.assertIn("dream folder(s) left", out)
         old = time.time() - 3 * 86400
         os.utime(first["folder"], (old, old))
         rc, out = self._main("notice", "--hook-json", json.dumps({"session_id": "run-two", "transcript_path": sched}))
         self.assertNotIn("Carry-over", out, "older than reseed_max_age_hours")
-        self.assertIn("awaiting promotion", out)
+        self.assertIn("dream folder(s) left", out)
 
     def test_list_all_enumerates_every_store(self):
         self._run()
@@ -588,6 +588,7 @@ class ReseedAndNoticeTests(unittest.TestCase):
         self.assertIn("## Current Task", ctx)
         self.assertIn(os.path.basename(new["folder"]), ctx)
         self.assertIn("0 lesson(s), 0 tension(s) staged", ctx)
+        self.assertNotIn("promot", ctx.lower().split("(dreaming re-seed")[1], "the re-seed tail must not ask for promotion")
 
     def test_reseed_is_silent_without_a_dream(self):
         rc, out = self._main("reseed", session="other-session")
@@ -601,9 +602,13 @@ class ReseedAndNoticeTests(unittest.TestCase):
         rc, out = self._main("notice")
         self.assertEqual(rc, 0)
         ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("2 dream(s) awaiting promotion", ctx)
-        self.assertIn("dreaming-promote", ctx)
+        self.assertIn("2 dream folder(s) left", ctx)
         self.assertIn(self.memory, ctx)
+        # 0.6.0, owner ruling 2026-09-25: dreams are compaction continuity only. The notice tells a
+        # waking mind to DELETE, never to promote - it once cost a wrong act in a lane that did not
+        # load the QC anti-fact (1974, Vera 09-26).
+        self.assertIn("delete", ctx)
+        self.assertNotIn("promot", ctx.lower())
 
     def test_list_and_dreams_awaiting_agree(self):
         self._sleep(datetime.datetime(2026, 9, 22, 11, 0))

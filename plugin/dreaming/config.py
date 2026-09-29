@@ -47,7 +47,10 @@ DEFAULTS = {
     # Sleep at session end, detached (Claude Code caps SessionEnd hooks at 60 s, so the hook only
     # decides and spawns). min_chars is rendered transcript since the last watermark: below it a
     # session (a `claude -p "Reply OK"`, a two-line resume) has nothing to dream and spawns nothing.
-    "sessionend": {"enabled": True, "min_chars": 20000},
+    # OFF BY DEFAULT since 0.6.0 (owner ruling 2026-09-25): dreaming is for continuity ACROSS
+    # COMPACTION. A session-end dream has no compaction to bridge; it only piled up folders every
+    # lane was then told to promote (keep rates 1/20, 2/12, 0/18). Opt back in per project.
+    "sessionend": {"enabled": False, "min_chars": 20000},
     "include_thinking": False,
     # A routine is a fresh session every run, so SessionStart(compact) never reaches it. With
     # reseed_on_startup the startup notice also injects the newest brief in the store written

@@ -134,3 +134,10 @@ class RoutineDefaultsTests(unittest.TestCase):
         self.assertEqual(config.DEFAULTS["claude"]["model"], "sonnet")
         self.assertIs(config.DEFAULTS["reseed_on_startup"], False)
         self.assertEqual(config.DEFAULTS["reseed_max_age_hours"], 48)
+
+    def test_session_end_sleep_is_off_by_default(self):
+        """0.6.0, owner ruling 2026-09-25: dreaming is for continuity ACROSS COMPACTION. The
+        SessionEnd sleep made a dream every lane was then told to promote; it was switched off in
+        one repo's .dreaming.json and kept running everywhere else (1974, Vera 09-26). The default
+        is the ruling, so no lane needs its own config to obey it."""
+        self.assertIs(config.DEFAULTS["sessionend"]["enabled"], False)

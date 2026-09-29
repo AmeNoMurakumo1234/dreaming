@@ -1,7 +1,13 @@
 ---
 name: dreaming
-description: "What the dreaming plugin does at compaction, the dream folder contract, and how to configure it (store root, agents map, engines). Load when a session mentions dreams awaiting promotion, when configuring which store an agent dreams into, when a sleep hook's output needs reading, or when asked what dreaming is."
+description: "What the dreaming plugin does at compaction, the dream folder contract, and how to configure it (store root, agents map, engines). Load when a session mentions leftover dream folders, when configuring which store an agent dreams into, when a sleep hook's output needs reading, or when asked what dreaming is."
 ---
+
+> **0.5.3 - dreams are COMPACTION CONTINUITY ONLY (owner ruling 2026-09-25).** The session-end
+> sleep is off by default, and dreams are never promoted into memory: a folder found at the start of
+> a new session is deleted, not mined. The lesson/tension staging described below still runs inside
+> a sleep and is due to be removed in 0.6.0; until then, ignore it at wake.
+
 
 # dreaming
 
@@ -19,7 +25,7 @@ changes is that nothing worth keeping has to survive it.
 | Context about to compact (manual or automatic) | `PreCompact`, blocking, one-hour ceiling | extract the transcript, map each slice, reduce against your index, write a dream folder |
 | The session ends (exit, `/clear`, a `claude -p` run finishing) | `SessionEnd`, capped at 60 s by Claude Code | decide in under a second whether enough transcript is new since the last watermark (`sessionend.min_chars`), then hand the same sleep to a DETACHED windowless child that outlives the session; its dream is reported by the next start notice |
 | Right after compaction | `SessionStart` with the `compact` matcher | re-inject the newest brief for this session as context |
-| A new or resumed session | `SessionStart` with `startup` or `resume` | one line: how many dreams await promotion, and where; with `reseed_on_startup`, the CARRY-OVER first (below) |
+| A new or resumed session | `SessionStart` with `startup` or `resume` | one line: how many dream folders are left, and where - delete them; with `reseed_on_startup`, the CARRY-OVER first (below) |
 
 The session is genuinely asleep during the first one. A full transcript of a long day through a
 local 27B model takes two to three minutes; the ceiling is an hour and a wall-clock budget inside

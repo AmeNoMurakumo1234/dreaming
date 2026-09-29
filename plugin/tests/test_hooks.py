@@ -100,6 +100,8 @@ class HookScriptTests(unittest.TestCase):
         # must appear AFTER it has returned, written by the detached child on the mechanical engine.
         import time
         self._mechanical_config()
+        with open(os.path.join(self.home, ".dreaming", "config.json"), "w", encoding="utf-8") as fh:
+            json.dump({"engines": ["mechanical"], "sessionend": {"enabled": True}}, fh)  # off by default since 0.6.0
         project = os.path.join(self.tmp, "proj")
         os.makedirs(os.path.join(project, ".git"))
         transcript = os.path.join(project, "s.jsonl")

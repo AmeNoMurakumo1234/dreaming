@@ -125,7 +125,13 @@ class ExitSleepTests(unittest.TestCase):
 
     # cli ----------------------------------------------------------------------------------
 
-    def _sessionend(self, transcript, capture):
+    def _sessionend(self, transcript, capture, opt_in=True):
+        # The exit sleep is OFF by default since 0.6.0, so a test of the mechanism opts in the way
+        # a project would - unless the test wrote its own project config first.
+        pj = os.path.join(self.project, ".dreaming.json")
+        if opt_in and not os.path.exists(pj):
+            with open(pj, "w", encoding="utf-8") as fh:
+                json.dump({"sessionend": {"enabled": True}}, fh)
         hook = {"session_id": "sess-cli", "transcript_path": transcript, "cwd": self.project, "reason": "other",
                 "scratchpad_dir": os.path.join(self.tmp, "scratch")}
         old = exitsleep.Popen
@@ -155,6 +161,23 @@ class ExitSleepTests(unittest.TestCase):
         self.assertIn("exit sleep spawned", out)
         self.assertIn("pid 77", out)
         self.assertIn("sleep", seen["argv"])
+
+    def test_cli_sessionend_is_silent_by_default(self):
+        """0.6.0 (owner 2026-09-25): with no config at all, a long session ends without a dream."""
+        # RECORD the call rather than raise: spawn_detached swallows a raising Popen, so a raise
+        # here would be caught and this test would pass on the old default (watched go green that way).
+        calls = []
+
+        def record(argv, **kw):
+            calls.append(argv)
+
+            class P:
+                pid = 1
+            return P()
+        big = self._transcript("big.jsonl", _record("u1", "user", "x" * 30000))
+        rc, out = self._sessionend(big, record, opt_in=False)
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls, [], "a default config spawned an exit sleep")
 
     def test_cli_sessionend_skips_a_short_session_and_never_spawns(self):
         def never(argv, **kw):

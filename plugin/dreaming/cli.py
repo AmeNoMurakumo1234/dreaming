@@ -183,7 +183,8 @@ def cmd_reseed(args):
                      if os.path.normcase(d["path"]) == os.path.normcase(folder)), None)
         staged = (" - %d lesson(s), %d tension(s) staged" % (mine["lessons"], mine["tensions"])) if mine else ""
         tail = ("\n\n(dreaming re-seed: this brief was written by the sleep step before compaction. "
-                "Dream folder: %s%s. Promote or delete it at your next wake - see the dreaming-promote skill.)"
+                "Dream folder: %s%s. It exists to carry THIS session across the compaction and is not "
+                "memory - delete it once the session no longer needs it.)"
                 % (folder, staged))
         print(_hook_context(brief + tail))
     except Exception as exc:
@@ -259,9 +260,11 @@ def cmd_notice(args):
                           "before acting on it. A brief is a candidate, not a fact; it is never promoted.)",
                           ""]
         if dreams:
-            lines.append("dreaming: %d dream(s) awaiting promotion in %s (agent %s). Read them in your first "
-                         "coherence pass and promote or delete each folder - the dreaming-promote skill is the "
-                         "procedure." % (len(dreams), res.store, res.agent))
+            # 0.6.0: dreams are compaction continuity only (owner 2026-09-25). A folder that
+            # survives into a NEW session has nothing left to carry, so the notice says delete.
+            lines.append("dreaming: %d dream folder(s) left in %s (agent %s) by an earlier session. "
+                         "Dreams carry one session across a compaction and are never mined for lessons "
+                         "(owner ruling 2026-09-25) - delete each folder." % (len(dreams), res.store, res.agent))
             for d in dreams:
                 lines.append("  %s - %d lesson(s), %d tension(s)%s" % (
                     d["name"], d["lessons"], d["tensions"], "  STALE" if d["stale"] else ""))
@@ -326,7 +329,7 @@ def cmd_list(args):
         return 1
     dreams = sl.dreams_awaiting(res.store, stale_days=int(cfg.get("stale_days") or 14))
     if not dreams:
-        print("no dreams awaiting promotion for %s in %s" % (res.agent, res.store))
+        print("no dream folders left for %s in %s" % (res.agent, res.store))
         return 0
     for d in dreams:
         print("%s  -  %d lesson(s), %d tension(s), %.1f days%s" % (
