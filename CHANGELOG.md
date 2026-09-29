@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.4 - 2026-09-29
+
+**On Windows the `claude` engine's instructions never reached the model.** From a routine's field
+report, plugin 0.5.2, engine `claude`, model `opus`: `claude` resolves to the npm `claude.CMD` shim,
+so the call ran through cmd.exe, which ends a command line at its first newline. The multi-line
+`--system-prompt` arrived as its first line only; the schema, the rules and "ASCII only" never
+arrived. The model answered in shapes of its own, the parser dropped every lesson, and the log said
+each chunk "returned no lessons and no state". One sleep: 45 lessons written, 0 kept. Reproduced
+on a second Windows machine before fixing: a two-line system prompt whose instruction is on line 2
+was ignored, the same instruction on one line was obeyed. 10 tests added, 2 existing assertions
+changed, 160 pass.
+
+- **Nothing with a newline goes on the command line.** The command line carries one fixed line;
+  the real instructions ride stdin, fenced, ahead of the payload. A newline in any argument is now
+  refused before the spawn rather than silently cut. Verified live through the shim afterwards: an
+  instruction on line 3 is obeyed, and a real map pass returns lessons with a why and a how.
+- **The smoke test proves the instructions arrive, not just the login.** It asks for a codeword that
+  is only on the second line of the instructions. The old smoke asserted a reply of exactly OK,
+  which a run that never saw its instructions also gives.
+- **What the parser drops is named.** A reply with the right keys whose items are in the wrong shape
+  now logs `map chunk N: K lessons in an unexpected shape, all dropped` and `map chunk N: state in an
+  unexpected shape (list), dropped`, and never "returned no lessons".
+- **The answering model is logged** on each `map` line, from the reply envelope's `modelUsage`.
+- **A withdrawn diagnosis.** The skill used to read several empty chunks as "the model was not
+  really reading" and suggest a bigger model. On Windows it was this truncation; the text now says so.
+- The regression tests copy the SHAPES of the report's seven replies (lessons as strings, lessons
+  keyed `lesson`/`evidence`, state as a list). Their text is synthetic, because the real replies
+  carry a user's paths and work and this repository is public.
+
+NOT CHANGED: non-ASCII characters in a reply still reach `raw` as `?`, because the engine converts
+every reply to ASCII on purpose. The `openai_compatible` engine was never affected: it sends its
+system prompt in the request body.
+
 ## 0.5.3 - 2026-09-29
 
 Enforces the owner's 2026-09-25 ruling in the plugin itself: dreaming is for continuity ACROSS A

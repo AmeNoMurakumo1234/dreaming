@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The engine ladder: claude -p adapter shape, exact-OK smoke, fall-through to mechanical."""
+"""The engine ladder: claude -p adapter shape, codeword smoke, fall-through to mechanical."""
 import json
 import os
 import sys
@@ -50,7 +50,8 @@ class EngineTests(unittest.TestCase):
 
         big = "x" * 60_000
         se.claude_complete({"model": "haiku"}, "sys", big, run=fake_run)
-        self.assertEqual(seen["kw"].get("input"), big)
+        # 0.5.4: stdin is the fenced instructions THEN the payload; the payload still ends it.
+        self.assertTrue(seen["kw"].get("input").endswith(big))
         self.assertNotIn(big, seen["cmd"])
         self.assertLess(max(len(a) for a in seen["cmd"]), 4096)
 
@@ -62,11 +63,13 @@ class EngineTests(unittest.TestCase):
         r = se.claude_complete({}, "s", "u", run=lambda *a, **k: _FakeCompleted("not json at all"))
         self.assertFalse(r.ok)
 
-    def test_claude_smoke_requires_exact_ok(self):
-        # CONTROL first: a plausible-but-wrong reply must NOT pass (a nested run answering a hook).
-        wrong = lambda *a, **k: _FakeCompleted(json.dumps({"is_error": False, "result": "Nothing to plant."}))
-        self.assertFalse(se.claude_smoke({}, run=wrong))
-        right = lambda *a, **k: _FakeCompleted(json.dumps({"is_error": False, "result": "OK"}))
+    def test_claude_smoke_requires_the_codeword(self):
+        # CONTROLS first: a nested run answering a hook, and a deaf run's polite OK, must NOT pass.
+        # 0.5.4: the old exact-OK smoke passed a run that never saw its instructions (2026-09-29).
+        for reply in ("Nothing to plant.", "OK"):
+            wrong = lambda *a, _r=reply, **k: _FakeCompleted(json.dumps({"is_error": False, "result": _r}))
+            self.assertFalse(se.claude_smoke({}, run=wrong), reply)
+        right = lambda *a, **k: _FakeCompleted(json.dumps({"is_error": False, "result": se.SMOKE_CODEWORD}))
         self.assertTrue(se.claude_smoke({}, run=right))
 
     def test_nested_claude_runs_in_safe_mode_not_a_machine_specific_plugin_list(self):

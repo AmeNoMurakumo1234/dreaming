@@ -273,9 +273,19 @@ def _empty(raw, **extra):
 
 
 def _shaped(obj, raw, truncated, **extra):
-    out = {"lessons": _clean_lessons(obj.get("lessons")), "state": _clean_state(obj.get("state")),
+    """The cleaned reply, plus what the cleaning threw away. A reply with the right keys whose
+    items are all in the wrong shape is a FAILURE the log must name; counting the drops is what
+    lets it (field report 2026-09-29: 45 lessons written, 0 kept, logged as 'returned no lessons')."""
+    lessons = _clean_lessons(obj.get("lessons"))
+    raw_lessons = obj.get("lessons")
+    written = len(raw_lessons) if isinstance(raw_lessons, list) else (1 if raw_lessons else 0)
+    raw_state = obj.get("state")
+    out = {"lessons": lessons, "state": _clean_state(raw_state),
            "tensions": _clean_tensions(obj.get("tensions")), "parse_failed": False,
-           "truncated": bool(truncated), "raw": raw}
+           "truncated": bool(truncated), "raw": raw,
+           "dropped_lessons": max(0, written - len(lessons)),
+           "state_dropped": raw_state is not None and not isinstance(raw_state, dict),
+           "state_shape": type(raw_state).__name__ if raw_state is not None else None}
     out.update(extra)
     return out
 
@@ -293,9 +303,10 @@ def map_chunk(engine, chunk, chunk_no, total, *, timeout=None):
     if not res.ok:
         return _empty("engine error: %s" % res.error)
     obj, truncated = _parse_object(res.text)
+    model = getattr(res, "model", None)
     if not obj or not any(k in obj for k in ("lessons", "state", "tensions")):
-        return _empty(res.text, truncated=truncated)
-    return _shaped(obj, res.text, truncated)
+        return _empty(res.text, truncated=truncated, model=model)
+    return _shaped(obj, res.text, truncated, model=model)
 
 
 def _maps_payload(maps):

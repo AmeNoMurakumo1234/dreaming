@@ -11,10 +11,12 @@ Ported from the quantum-concepts sleep step.
               on stdin, while disabling CLAUDE.md, skills, plugins, hooks and MCP for the nested
               run on ANY machine (a --settings list of plugin names, the previous approach, only
               fit the machine it was written on, and `--bare` never reads OAuth so it fails
-              "Not logged in"). The smoke test asserts the reply is exactly OK, because a nested
-              run that inherits a hook answers the hook instead of the prompt. The USER prompt
-              goes on stdin, never in argv: Windows caps a command line at 32,767 characters and
-              a chunk is 60k.
+              "Not logged in"). Since 0.5.4 the smoke test asks for a codeword that is only on
+              the SECOND line of the instructions: a nested run that inherits a hook answers the
+              hook, and a run whose instructions were cut to one line answers a polite OK, and
+              neither can name the codeword. EVERYTHING multi-line goes on stdin, never in argv:
+              Windows caps a command line at 32,767 characters, a chunk is 60k, and cmd.exe (the
+              npm `claude.CMD` shim) ends a command line at its first newline.
 3. mechanical - no engine at all. build_engine returns (None, "mechanical") and the caller
               writes the raw day plus a brief made from the last turns.
 
@@ -32,7 +34,17 @@ from collections import namedtuple
 
 from . import client
 
-EngineResult = namedtuple("EngineResult", "ok text engine error")
+EngineResult = namedtuple("EngineResult", "ok text engine error model", defaults=(None,))
+
+# 0.5.4: NOTHING WITH A NEWLINE GOES ON THE COMMAND LINE. On Windows `claude` usually resolves to
+# the npm `claude.CMD` shim, so the call runs through cmd.exe, which ends a command line at its
+# first newline. Measured 2026-09-29 on two machines: a two-line --system-prompt arrived as its
+# first line only, and the model answered in shapes of its own. So the command line carries one
+# fixed line, and the real instructions ride stdin ahead of the payload, fenced.
+SYSTEM_ARG = "Follow the INSTRUCTIONS block at the start of the input exactly."
+INSTRUCTIONS_OPEN = "<<<BEGIN INSTRUCTIONS>>>"
+INSTRUCTIONS_CLOSE = "<<<END INSTRUCTIONS>>>"
+SMOKE_CODEWORD = "PINEAPPLE"
 
 _NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
@@ -101,14 +113,25 @@ def _claude_exe():
     return shutil.which("claude") or "claude"
 
 
+def _answering_model(payload):
+    """The model that actually answered, from the envelope's modelUsage (None when absent)."""
+    usage = payload.get("modelUsage")
+    if isinstance(usage, dict) and usage:
+        return sorted(usage)[0] if len(usage) == 1 else ",".join(sorted(usage))
+    return None
+
+
 def claude_complete(cfg_claude, system, user, *, timeout=None, run=subprocess.run):
     cfg_claude = cfg_claude or {}
     model = str(cfg_claude.get("model") or "haiku")
     timeout = _bounded(cfg_claude.get("timeout"), timeout)
     cmd = [_claude_exe(), "-p", "--safe-mode", "--model", model, "--output-format", "json",
-           "--system-prompt", system]
+           "--system-prompt", SYSTEM_ARG]
+    if any("\n" in a or "\r" in a for a in cmd):
+        return EngineResult(False, "", "claude", "a command-line argument carries a newline")
+    stdin = "%s\n%s\n%s\n\n%s" % (INSTRUCTIONS_OPEN, system, INSTRUCTIONS_CLOSE, user)
     try:
-        done = run(cmd, input=user, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        done = run(cmd, input=stdin, capture_output=True, text=True, encoding="utf-8", errors="replace",
                    timeout=timeout, creationflags=_NO_WINDOW)
     except Exception as exc:
         return EngineResult(False, "", "claude", str(exc))
@@ -121,15 +144,20 @@ def claude_complete(cfg_claude, system, user, *, timeout=None, run=subprocess.ru
     if payload.get("is_error"):
         return EngineResult(False, "", "claude", str(payload.get("result")))
     text = str(payload.get("result") or "").strip()
+    answered_by = _answering_model(payload)
     if not text:
-        return EngineResult(False, "", "claude", "empty result")
-    return EngineResult(True, client.to_ascii(text), "claude", None)
+        return EngineResult(False, "", "claude", "empty result", answered_by)
+    return EngineResult(True, client.to_ascii(text), "claude", None, answered_by)
 
 
 def claude_smoke(cfg_claude, run=subprocess.run):
-    r = claude_complete(cfg_claude, "You are a terse assistant.",
-                        "Reply with exactly the word OK and nothing else.", timeout=120, run=run)
-    return bool(r.ok and r.text.strip() == "OK")
+    """Proves the INSTRUCTIONS arrive, not just the login: the codeword is only on the second line
+    of the instructions, so a run that loses everything after the first newline cannot answer it.
+    Before 0.5.4 this asserted a reply of exactly OK, which a deaf run gives too."""
+    system = "You are a smoke test for a nested run.\nThe codeword is %s." % SMOKE_CODEWORD
+    r = claude_complete(cfg_claude, system, "Reply with exactly the codeword and nothing else.",
+                        timeout=120, run=run)
+    return bool(r.ok and r.text.strip().strip(".").upper() == SMOKE_CODEWORD)
 
 
 def build_engine(cfg, *, local_ok=None, claude_ok=None, available=None):

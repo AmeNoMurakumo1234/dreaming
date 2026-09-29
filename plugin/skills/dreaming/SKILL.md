@@ -205,11 +205,16 @@ Every fallback is a `degraded:` line. The ones you will see:
 
 - `no engine - mechanical brief`: neither model answered; the brief is mechanical, promote nothing.
 - `map chunk N did not parse` / `engine error`: that slice produced nothing; the others still count.
-- `map chunk N returned no lessons and no state`: the reply parsed and was empty. One is a quiet
-  slice; several, or the newest one, means the model was not really reading. Measured twice on
-  the `claude` engine at its default `haiku` on short, structured scheduled runs; if that is your
-  shape, set `"claude": {"model": "sonnet"}` - the fallback runs rarely and reads better than
-  it runs fast.
+- `map chunk N returned no lessons and no state`: the reply parsed, was in the right shape, and was
+  empty. One is a quiet slice. Before 0.5.4 this line also covered a reply the PARSER threw away,
+  and an earlier version of this page read several of them as "the model was not really reading"
+  and suggested a bigger model. That diagnosis is withdrawn: on Windows the `claude` engine's
+  instructions were being cut to their first line (below), so the model never saw the schema.
+- `map chunk N: K lessons in an unexpected shape, all dropped` (or `..., M kept`) and
+  `map chunk N: state in an unexpected shape (list), dropped`: the model answered, in a shape the
+  parser cannot use. On the `claude` engine this was the signature of the Windows truncation fixed
+  in 0.5.4; if you see it on 0.5.4 or later, the model genuinely ignored the schema - check which
+  model answered (the `map` line names it) before blaming the prompt.
 - `newest slice yielded no state (unmapped or empty); brief is mechanical`: the resume state may
   only come from the newest slice of the day, and that slice gave none, so the brief is built from
   the last turns rather than from an older slice's articulate but stale state. The plain line

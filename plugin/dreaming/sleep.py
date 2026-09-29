@@ -170,12 +170,23 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
                         log.degrade("map chunk %d engine error: %s" % (i, str(m["raw"])[14:200]))
                     else:
                         log.degrade("map chunk %d did not parse" % i)
-                elif m.get("truncated"):
-                    log.degrade("map chunk %d truncated (provider cap); salvaged %d lesson(s)" % (i, len(m["lessons"])))
-                elif not m["lessons"] and not m["tensions"] and not m["state"].get("current_task"):
-                    log.degrade("map chunk %d returned no lessons and no state" % i)
+                else:
+                    # A drop is named BEFORE the "returned nothing" check, so a reply the parser
+                    # threw away is never logged as a model that said nothing (2026-09-29).
+                    dropped = int(m.get("dropped_lessons") or 0)
+                    if dropped:
+                        whole = "all dropped" if not m["lessons"] else "%d kept" % len(m["lessons"])
+                        log.degrade("map chunk %d: %d lessons in an unexpected shape, %s" % (i, dropped, whole))
+                    if m.get("state_dropped"):
+                        log.degrade("map chunk %d: state in an unexpected shape (%s), dropped" % (i, m.get("state_shape")))
+                    if m.get("truncated"):
+                        log.degrade("map chunk %d truncated (provider cap); salvaged %d lesson(s)" % (i, len(m["lessons"])))
+                    elif (not dropped and not m.get("state_dropped") and not m["lessons"] and not m["tensions"]
+                          and not m["state"].get("current_task")):
+                        log.degrade("map chunk %d returned no lessons and no state" % i)
                 maps.append(m)
-                log.write("map | chunk %d/%d | %d chars | lessons %d" % (i, len(chunks), len(chunk), len(m["lessons"])))
+                answered = (" | model %s" % m["model"]) if m.get("model") else ""
+                log.write("map | chunk %d/%d | %d chars | lessons %d%s" % (i, len(chunks), len(chunk), len(m["lessons"]), answered))
             # 3. reduce
             remaining = budget_seconds - (clock() - started)
             if maps and remaining < min_call_seconds:
