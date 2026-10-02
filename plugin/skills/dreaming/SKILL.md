@@ -74,7 +74,7 @@ variables `DREAMING_AGENT`, `DREAMING_DISABLED=1`, `DREAMING_STORE_ROOT`, `DREAM
   "engines": ["openai_compatible", "claude", "mechanical"],
   "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "", "api_key_env": "DREAMING_API_KEY",
                         "model": "local", "timeout": 900, "max_tokens": 0, "label": ""},
-  "claude": {"model": "sonnet", "timeout": 900},
+  "claude": {"model": "opus", "timeout": 900},
   "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 900,
   "sessionend": {"enabled": true, "min_chars": 20000},
   "reseed_on_startup": false, "reseed_max_age_hours": 48,
@@ -185,7 +185,7 @@ Tried in the configured order; the first that answers wins:
   has none) and then a one-token authenticated completion, so a server that is up but rejects
   your key is treated as down. With several endpoints the engine is logged as
   `openai_compatible[<label>]`; with one it stays `openai_compatible`.
-- `claude` - `claude -p --safe-mode --model sonnet` on the CLI's own login (`claude.model`; sonnet
+- `claude` - `claude -p --safe-mode --model opus` on the CLI's own login (`claude.model`; opus since 0.5.6, sonnet
   since 0.4.0, because haiku returned empty slices on short scheduled runs). Safe mode disables CLAUDE.md, skills,
   plugins, hooks and MCP inside the nested run on any machine (this plugin included: a nested run
   must never sleep) and keeps the OAuth login (measured 2026-09-22). The prompt goes on stdin.

@@ -123,7 +123,7 @@ def _answering_model(payload):
 
 def claude_complete(cfg_claude, system, user, *, timeout=None, run=subprocess.run):
     cfg_claude = cfg_claude or {}
-    model = str(cfg_claude.get("model") or "haiku")
+    model = str(cfg_claude.get("model") or "opus")
     timeout = _bounded(cfg_claude.get("timeout"), timeout)
     cmd = [_claude_exe(), "-p", "--safe-mode", "--model", model, "--output-format", "json",
            "--system-prompt", SYSTEM_ARG]

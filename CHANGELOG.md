@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.6 - 2026-10-02
+
+**The `claude` fallback defaults to `opus`** (was `sonnet`), the next piece of the approved 0.6.0
+cut (1974). A config that names no model now asks for opus too, where it used to drop all the way to
+haiku. The fallback runs only when the local server does not answer, so the cost is rare and the
+brief it writes is what a mind wakes from. 1 test added, 1 updated; both watched red first.
+
 ## 0.5.5 - 2026-10-02
 
 **A harness payload is never the brief's Current Task.** From the 1974 field note: a fallback-engine

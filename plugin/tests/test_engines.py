@@ -40,6 +40,18 @@ class EngineTests(unittest.TestCase):
         self.assertNotIn("--bare", seen["cmd"])
         self.assertEqual(seen["kw"].get("creationflags"), se._NO_WINDOW)
 
+    def test_a_claude_config_with_no_model_asks_for_opus(self):
+        """The approved 0.6.0 cut (1974): opus is the fallback. A config that names no model must
+        not quietly drop to a cheaper one than the default it was written against."""
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"] = cmd
+            return _FakeCompleted(json.dumps({"is_error": False, "result": "ok"}))
+
+        se.claude_complete({}, "sys", "usr", run=fake_run)
+        self.assertEqual(seen["cmd"][seen["cmd"].index("--model") + 1], "opus")
+
     def test_claude_complete_sends_the_prompt_on_stdin_never_in_argv(self):
         seen = {}
 

@@ -27,7 +27,7 @@ happens. What changes is that nothing worth keeping has to survive it.
 | First prompt of a session, or a resume | `UserPromptSubmit` (first prompt only), `SessionStart` (`resume`) | "N dream folder(s) left in <store> ... delete each folder"; with `reseed_on_startup`, a scheduled run also receives its own task's previous brief. Never at `SessionStart` (`startup`): it fires before the scheduled-task tag is in the transcript, so it could only guess who is waking - and the guess was whoever owns the clone |
 
 The engine ladder: any local OpenAI-compatible server first (llama.cpp, vLLM, Ollama),
-`claude -p --safe-mode` (sonnet) on the CLI's own login second, and a mechanical brief built from the last
+`claude -p --safe-mode` (opus) on the CLI's own login second, and a mechanical brief built from the last
 turns when neither answers. Every hook exits 0 on any failure; compaction is never blocked on a
 dead engine, and every engine call is bounded by the remaining budget so a sleep cannot outrun
 the hook's one-hour ceiling. The hooks invoke `python`, so Python 3.10+ has to be on the PATH

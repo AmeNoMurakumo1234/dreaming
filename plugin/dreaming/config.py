@@ -30,9 +30,10 @@ DEFAULTS = {
     "engines": ["openai_compatible", "claude", "mechanical"],
     "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "",
                           "api_key_env": "DREAMING_API_KEY", "model": "local", "timeout": 900},
-    # sonnet, not haiku: haiku returned empty-but-valid slices on short scheduled runs five times
-    # in one day (2026-09-23); the fallback runs rarely and reads better than it runs fast.
-    "claude": {"model": "sonnet", "timeout": 900},
+    # opus (1974, the approved 0.6.0 cut): haiku returned empty-but-valid slices on short scheduled
+    # runs five times in one day (2026-09-23), and a sonnet fallback once named a raw task
+    # notification as the brief's task. The fallback runs rarely and reads better than it runs fast.
+    "claude": {"model": "opus", "timeout": 900},
     "chunk_chars": 60000,
     "cap_chars": 400000,
     # Every engine call gets the remaining budget as its timeout, so a sleep never crosses the
