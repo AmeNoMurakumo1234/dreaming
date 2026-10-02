@@ -152,6 +152,21 @@ class SleepRunTests(unittest.TestCase):
         self.assertIn("the LAST question, about the watermark", brief)
         self.assertTrue(any("newest slice" in d and "mechanical" in d for d in out["degraded"]), out["degraded"])
 
+    def test_a_model_that_names_a_notification_as_the_task_is_overruled(self):
+        """The Sonnet fallback once wrote a brief whose Current Task was a raw task notification
+        (1974). The model's state is otherwise kept; only the task is replaced by the last real
+        request, and the sleep says so."""
+        payload = "<task-notification>\n<task-id>bwex0qful</task-id>\n<status>failed</status>"
+        bad = json.dumps(dict(json.loads(MAP_JSON), state={
+            "current_task": payload, "exact_state": "the suite finished red",
+            "next_step": "n", "uncommitted_decisions": [], "files_in_context": []}))
+        out = self._run(engine=self._engine(map_text=bad))
+        brief = _read(os.path.join(out["folder"], "brief.md"))
+        self.assertNotIn("task-notification", brief)
+        self.assertIn("second question, about the 4090", brief)
+        self.assertIn("the suite finished red", brief)
+        self.assertTrue(any("system payload" in d for d in out["degraded"]), out["degraded"])
+
     def test_mechanical_run_when_no_engine(self):
         out = self._run(engine=None, engine_name="mechanical")
         self.assertIn("no engine", " ".join(out["degraded"]))

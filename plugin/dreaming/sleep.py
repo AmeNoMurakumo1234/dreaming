@@ -241,6 +241,9 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
         log.degrade("no index; tensions not filed (%d dropped)" % dropped)
     elif dropped:
         log.degrade("%d tension(s) named entries not in the index; dropped" % dropped)
+    state, replaced = sd.guard_task(state, turns)
+    if replaced:
+        log.degrade("the state named a system payload as the task; replaced with the last real request")
     _write(os.path.join(folder, "brief.md"), sd.render_brief(state, meta))
     os.makedirs(os.path.join(folder, "lessons"), exist_ok=True)
     used = set()

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.5 - 2026-10-02
+
+**A harness payload is never the brief's Current Task.** From the 1974 field note: a fallback-engine
+brief came back with a raw background-task notification as its Current Task. The harness injects
+task notifications, system reminders and local-command output in the USER role, and the mechanical
+brief took "the last user turn" literally, so it could do the same with no model involved at all.
+Now `distill.is_system_payload()` judges a turn by how it OPENS (a request that merely mentions a
+notification is still a request); `mechanical_state` skips such turns, both for the task and for
+where the files-in-context window starts; and after the state is chosen, `guard_task` replaces a
+payload task with the last real request, keeps everything else the model wrote, and logs a degrade.
+3 tests added (163 pass). Two mutants watched red: the guard disabled, and the predicate loosened to
+"contains" - the control test catches the second.
+
+This is one piece of the approved 0.6.0 cut. Still not built: brief-only sleeps, reading only the
+newest slice, the reaper, opus as the fallback default.
+
 ## 0.5.4 - 2026-09-29
 
 **On Windows the `claude` engine's instructions never reached the model.** From a routine's field

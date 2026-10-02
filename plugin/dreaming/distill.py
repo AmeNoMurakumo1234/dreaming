@@ -391,14 +391,40 @@ def reduce_maps(engine, maps, index_text, *, max_chars=DEFAULT_CHUNK_CHARS, time
     return _shaped(obj, res.text, truncated, halved=0, gave_up=False)
 
 
+# THE HARNESS SPEAKS IN THE USER ROLE, AND NONE OF IT IS A REQUEST (1974). A brief's Current Task
+# once came back as a raw background-task notification. These are the openings of what the harness
+# injects as a user turn; a turn is judged by how it OPENS, so a request that merely mentions a
+# notification is still a request.
+_SYSTEM_PAYLOAD = re.compile(
+    r"^\s*(<task-notification>|<system-reminder>|\[SYSTEM NOTIFICATION|<local-command-stdout>"
+    r"|<local-command-stderr>|<command-name>|<command-message>|Caveat: The messages below)",
+    re.IGNORECASE)
+
+
+def is_system_payload(text):
+    return bool(_SYSTEM_PAYLOAD.match(str(text or "")))
+
+
+def _last_request(turns):
+    return next((t.text for t in reversed(turns) if t.role == "user" and not is_system_payload(t.text)), "")
+
+
+def guard_task(state, turns):
+    """The state with a harness payload as its task replaced by the last real request, and
+    whether it was replaced. Everything else the model wrote is kept."""
+    if not is_system_payload((state or {}).get("current_task")):
+        return state, False
+    return dict(state, current_task=_last_request(turns)[:600] or "(no request found - re-read the last turns)"), True
+
+
 def mechanical_state(turns):
-    """No engine: the last user turn is the task, the last assistant turn the state, the tool
-    names since the last user turn stand in for files."""
-    last_user = next((t.text for t in reversed(turns) if t.role == "user"), "")
+    """No engine: the last real user turn is the task, the last assistant turn the state, the
+    tool names since that turn stand in for files."""
+    last_user = _last_request(turns)
     last_assistant = next((t.text for t in reversed(turns) if t.role == "assistant"), "")
     tools = []
     for t in reversed(turns):
-        if t.role == "user":
+        if t.role == "user" and not is_system_payload(t.text):
             break
         if t.role == "tool_use":
             tools.append(t.text[:120])

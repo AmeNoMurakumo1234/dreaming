@@ -225,6 +225,30 @@ class DistillTests(unittest.TestCase):
         self.assertIn("the gate is fixed", state["exact_state"])
         self.assertIn("Bash", state["files_in_context"][0])
 
+    def test_a_harness_payload_is_never_the_task(self):
+        """Field report 2026-09-25 (Assay's note on 1974): a brief's Current Task was a raw
+        background-task notification. The harness speaks in the user role - task notifications,
+        system reminders - and none of it is a request anyone made."""
+        turns = [sx.Turn("u1", "t1", "user", "please fix the gate"),
+                 sx.Turn("t1", "t2", "tool_use", "Bash {\"command\": \"pytest\"}"),
+                 sx.Turn("a1", "t3", "assistant", "suite running"),
+                 sx.Turn("u2", "t4", "user", "<task-notification>\n<task-id>bwex0qful</task-id>"),
+                 sx.Turn("u3", "t5", "user", "[SYSTEM NOTIFICATION - NOT USER INPUT] done"),
+                 sx.Turn("a2", "t6", "assistant", "the gate is fixed")]
+        state = sd.mechanical_state(turns)
+        self.assertIn("please fix the gate", state["current_task"])
+        self.assertNotIn("task-notification", state["current_task"])
+        self.assertIn("Bash", " ".join(state["files_in_context"]))
+
+    def test_a_request_that_merely_mentions_a_notification_is_still_a_request(self):
+        """The control: the guard reads what a turn IS, not words it contains."""
+        for text in ("why did the task-notification arrive twice?",
+                     "fix the system reminder wording in the hook"):
+            self.assertFalse(sd.is_system_payload(text), text)
+        for text in ("<task-notification><task-id>x</task-id>", "  <system-reminder>\nhi",
+                     "[SYSTEM NOTIFICATION - NOT USER INPUT]", "<local-command-stdout>ok"):
+            self.assertTrue(sd.is_system_payload(text), text)
+
     def test_renderers_are_ascii_and_carry_provenance(self):
         meta = {"agent": "Joule", "session_id": "sess-0001", "engine": "fake", "when": "2026-09-22 12:00"}
         lesson = {"title": "A lesson \u2014 with a dash", "why": "w", "how_to_apply": "h",
