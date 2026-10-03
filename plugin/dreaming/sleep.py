@@ -14,6 +14,8 @@ INVARIANTS (each one is a test in tests/test_sleep.py):
 import datetime as _dt
 import json
 import os
+import re
+import shutil
 import time
 import traceback
 
@@ -294,6 +296,48 @@ def newest_dream_for(memory_path, session_id):
         if os.path.isfile(os.path.join(root, name, "brief.md")):
             return os.path.join(root, name)
     return None
+
+
+_DREAM_NAME = re.compile(r"^\d{8}-\d{6}-([^-]+)(?:-\d+)?$")
+_WATERMARK_NAME = re.compile(r"^\.watermark-(.+)\.txt$")
+
+
+def reap(out_root, *, keep_session, max_age_days, now=None):
+    """Remove dream folders and watermark files of OTHER sessions older than max_age_days.
+
+    0.6.0 cut (quantum-concepts 1974, owner ruling 2026-09-25): a dream is continuity across a
+    compaction of the session that made it, so once that session is gone its folder and watermark
+    are litter. What is touched is deliberately narrow - only <out_root>/dreams/, only names this
+    module writes (dream_folder_name, watermark_file), never anything of keep_session at any age,
+    never anything younger than the cutoff. max_age_days <= 0 means off. Returns the removed paths."""
+    root = os.path.join(out_root, DREAMS_DIRNAME)
+    if not max_age_days or max_age_days <= 0 or not os.path.isdir(root):
+        return []
+    now = time.time() if now is None else now
+    cutoff = now - float(max_age_days) * 86400.0
+    sid8 = (keep_session or "nosession")[:8]
+    safe = os.path.basename(watermark_file(out_root, keep_session))
+    gone = []
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name)
+        try:
+            if os.path.getmtime(path) >= cutoff:
+                continue
+            if os.path.isdir(path):
+                m = _DREAM_NAME.match(name)
+                if not m or m.group(1) == sid8:
+                    continue
+                shutil.rmtree(path)
+            elif os.path.isfile(path):
+                if not _WATERMARK_NAME.match(name) or name == safe:
+                    continue
+                os.remove(path)
+            else:
+                continue
+        except OSError:
+            continue        # a reaper never fails the sleep it rides on
+        gone.append(path)
+    return gone
 
 
 def dreams_awaiting(out_root, *, stale_days=DREAM_STALE_DAYS, now=None):

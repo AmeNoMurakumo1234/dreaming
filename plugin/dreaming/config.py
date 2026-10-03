@@ -60,6 +60,10 @@ DEFAULTS = {
     "reseed_max_age_hours": 48,
     "index_file": "MEMORY.md",
     "stale_days": 14,
+    # The reaper (0.6.0): dreams are compaction continuity for the session that made them, so at
+    # each sleep a dream folder or watermark left by ANOTHER session and older than this many days
+    # is removed. 0 turns it off. Only names the plugin itself writes are ever touched.
+    "reap_days": 14,
 }
 
 _ENV_SCALARS = {

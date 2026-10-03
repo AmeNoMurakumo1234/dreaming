@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.7 - 2026-10-02
+
+**The reaper.** Dreams are continuity across a compaction for the session that made them (owner
+ruling 2026-09-25), so once that session is gone its folder and its watermark file are litter. Each
+PreCompact sleep now removes, under `<store>/dreams/` only, a dream folder or `.watermark-*.txt` left
+by ANOTHER session and older than `reap_days` (default 14; 0 turns it off). It never touches the
+current session's things at any age, anything younger than the cutoff, or any name the plugin did not
+write. The sleep's summary line says `reaped N` when it removed something; a reap error never fails
+the sleep. 5 tests added; watched red first, and the keep-this-session guard was watched red by
+mutant. Still not built of 0.6.0: brief-only sleeps, reading only the newest slice.
+
 ## 0.5.6 - 2026-10-02
 
 **The `claude` fallback defaults to `opus`** (was `sonnet`), the next piece of the approved 0.6.0

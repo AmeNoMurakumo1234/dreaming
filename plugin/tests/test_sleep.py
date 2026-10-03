@@ -440,6 +440,20 @@ class SleepRunTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("sleep failed", out)
 
+    def test_hook_sleep_reaps_another_sessions_old_dream_and_keeps_its_own(self):
+        """0.6.0 reaper, wired: the PreCompact sleep clears an old dream of ANOTHER session and
+        says so on its line; the dream it just wrote, of this session, stays."""
+        old = os.path.join(self.memory, "dreams", "20260101-000000-otherses")
+        os.makedirs(old)
+        past = time.time() - 30 * 86400
+        os.utime(old, (past, past))
+        hook = {"session_id": "sess-0001", "transcript_path": self.transcript, "cwd": self.project}
+        rc, out = self._main("sleep", "--engine", "mechanical", "--agent", "Joule", "--hook-json", json.dumps(hook))
+        self.assertEqual(rc, 0)
+        self.assertFalse(os.path.exists(old))
+        self.assertIn("reaped 1", out)
+        self.assertEqual(len(_dream_dirs(os.path.join(self.memory, "dreams"))), 1)
+
     def test_hook_sleep_is_silent_when_disabled(self):
         with open(os.path.join(self.project, ".dreaming.json"), "w", encoding="utf-8") as fh:
             json.dump({"enabled": False}, fh)

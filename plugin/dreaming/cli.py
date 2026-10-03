@@ -119,8 +119,11 @@ def cmd_sleep(args):
         engine, engine_name = _pick_engine(cfg, args.engine)
         index_text = "" if res.scratch else identity.index_text(res.store, cfg, agent=res.agent)
         out = _run(cfg, args, transcript, session_id, res.store, res.agent, index_text, engine, engine_name)
-        print("dreaming: %s | engine %s | lessons %d | tensions %d%s" % (
+        # 0.6.0 reaper: a dream is continuity for its own session, so other sessions' old ones go
+        reaped = sl.reap(res.store, keep_session=session_id, max_age_days=float(cfg.get("reap_days") or 0))
+        print("dreaming: %s | engine %s | lessons %d | tensions %d%s%s" % (
             out["folder"], engine_name, out["lessons"], out["tensions"],
+            (" | reaped %d" % len(reaped)) if reaped else "",
             (" | degraded: " + "; ".join(out["degraded"])) if out["degraded"] else ""))
     except Exception as exc:
         print("dreaming: sleep failed (compaction proceeds): %s" % exc)
