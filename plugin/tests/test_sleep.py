@@ -28,7 +28,7 @@ if HERE not in sys.path:
 
 from dreaming import cli, config, distill as sd, extract as sx, identity, sleep as sl  # noqa: E402
 from dreaming.engines import EngineResult  # noqa: E402
-from test_distill import INDEX_TEXT, MAP_JSON, REDUCE_JSON  # noqa: E402
+from test_distill import MAP_JSON  # noqa: E402
 from test_extract import _read, _rec, write_fixture  # noqa: E402
 
 
@@ -64,14 +64,14 @@ class SleepRunTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _engine(self, map_text=MAP_JSON, reduce_text=REDUCE_JSON):
+    def _engine(self, map_text=MAP_JSON):
         def fn(system, user, *, max_tokens=4000, timeout=None):
-            return EngineResult(True, reduce_text if system is sd.REDUCE_SYSTEM else map_text, "fake", None)
+            return EngineResult(True, map_text, "fake", None)
         return fn
 
     def _run(self, **kw):
         base = dict(agent="Joule", session_id="sess-0001", out_root=self.memory,
-                    engine=self._engine(), engine_name="fake", index_text=INDEX_TEXT)
+                    engine=self._engine(), engine_name="fake")
         base.update(kw)
         return sl.run_sleep(self.transcript, **base)
 
@@ -81,21 +81,57 @@ class SleepRunTests(unittest.TestCase):
             rc = cli.main(["--project", self.project, "--home", self.home] + list(argv))
         return rc, buf.getvalue()
 
-    def test_full_run_writes_every_stage_and_never_the_index(self):
+    def test_full_run_writes_the_brief_and_nothing_to_promote(self):
+        """0.6.0 (owner 2026-09-25): a dream is compaction continuity, never mined for lessons. So
+        a sleep writes the day, the newest slice's map, the brief and the log - and NO lessons/,
+        tensions.md or reduce.json, which existed only to be promoted."""
         out = self._run()
         folder = out["folder"]
         self.assertTrue(folder.startswith(os.path.join(self.memory, "dreams")))
-        for name in ("day.md", "brief.md", "tensions.md", "sleep.log", "reduce.json"):
+        for name in ("day.md", "brief.md", "sleep.log"):
             self.assertTrue(os.path.isfile(os.path.join(folder, name)), name)
         self.assertTrue(os.path.isfile(os.path.join(folder, "map", "1.json")))
-        self.assertEqual(len(os.listdir(os.path.join(folder, "lessons"))), 2)
-        self.assertEqual((out["lessons"], out["tensions"], out["degraded"]), (2, 1, []))
+        for name in ("lessons", "tensions.md", "reduce.json"):
+            self.assertFalse(os.path.exists(os.path.join(folder, name)), name)
+        self.assertEqual(out["degraded"], [])
+        self.assertIn("GPU research", _read(os.path.join(folder, "brief.md")))
         log = _read(os.path.join(folder, "sleep.log"))
         self.assertIn("watermark: as-0000-11", log)
         self.assertIn("engine: fake", log)
         self.assertEqual(_read(os.path.join(self.memory, "MEMORY.md")), self.index_before)
         self.assertEqual(sorted(os.listdir(self.memory)),
                          sorted(["MEMORY.md", "a-count-is-not-discriminating-power.md", "dreams"]))
+
+    def test_a_sleep_makes_one_state_only_call_on_the_newest_slice(self):
+        """0.6.0: the brief's state was always a COPY of the newest slice (0.3.2), so mapping the
+        older slices and reducing them bought only lessons. The sleep reads the newest slice and
+        nothing else: one engine call, the state-only prompt, the newest slice's text."""
+        with open(self.transcript, "w", encoding="utf-8") as fh:
+            for i in range(20):
+                fh.write(json.dumps(_rec("user", "us-0003-%02d" % i, message={"role": "user", "content": "old %02d " % i + "q" * 500})) + NL)
+            fh.write(json.dumps(_rec("user", "us-0003-99", message={"role": "user", "content": "the NEWEST words"})) + NL)
+        calls = []
+
+        def fn(system, user, *, max_tokens=4000, timeout=None):
+            calls.append((system, user))
+            return EngineResult(True, MAP_JSON, "fake", None)
+
+        out = self._run(engine=fn, chunk_chars=2000)
+        self.assertEqual(len(calls), 1, "exactly one engine call")
+        system, user = calls[0]
+        self.assertIs(system, sd.STATE_SYSTEM)
+        self.assertIn("the NEWEST words", user)
+        self.assertNotIn("old 00 ", user, "an older slice must not reach the model")
+        self.assertNotIn("lessons", user, "the call must not ask for what nothing promotes")
+        n = len(sx.chunk_text(_read(os.path.join(out["folder"], "day.md")), max_chars=2000))
+        self.assertGreater(n, 1, "the fixture must produce several slices")
+        self.assertEqual(os.listdir(os.path.join(out["folder"], "map")), ["%d.json" % n])
+        self.assertIn("state: from slice %d of %d" % (n, n), _read(os.path.join(out["folder"], "sleep.log")))
+
+    def test_the_state_prompt_asks_for_no_lessons_or_tensions(self):
+        self.assertIn('"state"', sd.STATE_SYSTEM)
+        for word in ("lesson", "tension"):
+            self.assertNotIn(word, sd.STATE_SYSTEM.lower())
 
     def test_second_sleep_uses_watermark(self):
         first = self._run(now=datetime.datetime(2026, 9, 22, 12, 0))
@@ -121,36 +157,14 @@ class SleepRunTests(unittest.TestCase):
         self.assertNotIn("first question about GPUs", day2)
         self.assertNotIn("after (start)", _read(os.path.join(second["folder"], "sleep.log")))
 
-    def test_a_map_slice_that_returns_nothing_is_named_in_the_log(self):
-        """An empty-but-valid map reply is a degraded slice, not a clean one (Haiku returned three
-        of them on 2026-09-23 and the log read as a full dream)."""
-        empty = json.dumps({"lessons": [], "state": {}, "tensions": []})
-        out = self._run(engine=self._engine(map_text=empty))
-        self.assertTrue(any("map chunk 1 returned no lessons and no state" in d for d in out["degraded"]), out["degraded"])
-
-    def test_a_state_from_an_older_slice_never_becomes_the_brief(self):
-        """The resume state may only come from the NEWEST slice. When that slice yields none, an
-        articulate state from an older slice is stale by construction; the mechanical state of the
-        last turns is crude but true (the 2026-09-23 brief was eight hours stale this way)."""
-        with open(self.transcript, "w", encoding="utf-8") as fh:
-            for i in range(20):
-                fh.write(json.dumps(_rec("user", "us-0001-%02d" % i, message={"role": "user", "content": "q" * 500})) + "\n")
-            fh.write(json.dumps(_rec("user", "us-0001-99", message={"role": "user", "content": "the LAST question, about the watermark"})) + "\n")
-        empty = json.dumps({"lessons": [], "state": {}, "tensions": []})
-        seen = []
-
-        def fn(system, user, *, max_tokens=4000, timeout=None):
-            if system is sd.REDUCE_SYSTEM:
-                return EngineResult(True, REDUCE_JSON, "fake", None)
-            seen.append(1)
-            return EngineResult(True, MAP_JSON if len(seen) == 1 else empty, "fake", None)
-
-        out = self._run(engine=fn, chunk_chars=2000)
-        self.assertGreater(len(seen), 1, "the fixture must produce several slices")
-        brief = _read(os.path.join(out["folder"], "brief.md"))
-        self.assertNotIn("GPU research", brief)
-        self.assertIn("the LAST question, about the watermark", brief)
+    def test_a_slice_that_returns_no_state_gives_a_mechanical_brief_and_says_so(self):
+        """An empty-but-valid reply is a degraded sleep, not a clean one (Haiku returned three of
+        them on 2026-09-23 and the log read as a full dream). The mechanical state of the last
+        turns is crude but true."""
+        out = self._run(engine=self._engine(map_text=json.dumps({"state": {}})))
+        self.assertTrue(any("slice 1 of 1 returned no state" in d for d in out["degraded"]), out["degraded"])
         self.assertTrue(any("newest slice" in d and "mechanical" in d for d in out["degraded"]), out["degraded"])
+        self.assertIn("second question, about the 4090", _read(os.path.join(out["folder"], "brief.md")))
 
     def test_a_model_that_names_a_notification_as_the_task_is_overruled(self):
         """The Sonnet fallback once wrote a brief whose Current Task was a raw task notification
@@ -171,70 +185,17 @@ class SleepRunTests(unittest.TestCase):
         out = self._run(engine=None, engine_name="mechanical")
         self.assertIn("no engine", " ".join(out["degraded"]))
         self.assertIn("second question, about the 4090", _read(os.path.join(out["folder"], "brief.md")))
-        self.assertEqual(out["lessons"], 0)
         self.assertTrue(os.path.isfile(os.path.join(out["folder"], "day.md")))
 
-    def test_engine_exception_mid_reduce_still_leaves_day_and_log(self):
+    def test_engine_exception_in_the_state_call_still_leaves_day_log_and_brief(self):
         def exploding(system, user, *, max_tokens=4000, timeout=None):
-            if system is sd.REDUCE_SYSTEM:
-                raise RuntimeError("kaboom")
-            return EngineResult(True, MAP_JSON, "fake", None)
+            raise RuntimeError("kaboom")
 
         out = self._run(engine=exploding)
         for name in ("day.md", "sleep.log", "brief.md"):
             self.assertTrue(os.path.isfile(os.path.join(out["folder"], name)), name)
         self.assertTrue(any("kaboom" in d for d in out["degraded"]))
-
-    def test_empty_reduce_state_falls_back_to_the_last_map_state_not_mechanical(self):
-        full = json.loads(REDUCE_JSON)
-        empty_state = json.dumps(dict(full, state={}))
-        out = self._run(engine=self._engine(reduce_text=empty_state))
-        brief = _read(os.path.join(out["folder"], "brief.md"))
-        self.assertIn("GPU research", brief)
-        self.assertNotIn("mechanical brief", brief)
-        self.assertIn("state: copied from slice 1 of 1", _read(os.path.join(out["folder"], "sleep.log")))
-
-    def test_the_brief_state_is_copied_from_the_newest_slice_never_the_reduce(self):
-        """Field report 2026-09-23: the reduce re-emitted the SECOND-newest slice's state verbatim
-        while map/7 held the right one. The state is a COPY of the newest slice, not a model
-        choice, so the rule cannot be broken by a reduce that prefers an older slice."""
-        with open(self.transcript, "w", encoding="utf-8") as fh:
-            for i in range(20):
-                fh.write(json.dumps(_rec("user", "us-0002-%02d" % i, message={"role": "user", "content": "q" * 500})) + NL)
-        newest = json.dumps(dict(json.loads(MAP_JSON), state={"current_task": "the newest slice task", "exact_state": "e",
-                                                             "next_step": "n", "uncommitted_decisions": [], "files_in_context": []}))
-        calls = []
-
-        def fn(system, user, *, max_tokens=4000, timeout=None):
-            if system is sd.REDUCE_SYSTEM:
-                return EngineResult(True, REDUCE_JSON, "fake", None)
-            calls.append(1)
-            head = user.split(".")[0].split()          # 'Slice', n, 'of', total
-            return EngineResult(True, newest if head[1] == head[3] else MAP_JSON, "fake", None)
-
-        out = self._run(engine=fn, chunk_chars=2000)
-        n = len(calls)
-        self.assertGreater(n, 1, "fixture must produce several slices")
-        brief = _read(os.path.join(out["folder"], "brief.md"))
-        self.assertIn("the newest slice task", brief)
-        self.assertNotIn("GPU research", brief)
-        self.assertIn("state: copied from slice %d of %d" % (n, n), _read(os.path.join(out["folder"], "sleep.log")))
-
-    def test_a_tension_naming_an_entry_not_in_the_index_is_dropped_and_counted(self):
-        """Field report 2026-09-23: twelve tensions, every 'existing entry' invented from the
-        transcript's own sentences. A tension against an entry the mind does not hold invites it
-        to resolve a contradiction it never had."""
-        full = json.loads(REDUCE_JSON)
-        full["tensions"].append({"claim": "c2", "existing_slug": "made-up-entry", "existing_line": "x",
-                                 "side_a": "a", "side_b": "b"})
-        out = self._run(engine=self._engine(reduce_text=json.dumps(full)))
-        self.assertEqual(out["tensions"], 1)
-        self.assertTrue(any("1 tension(s) named entries not in the index; dropped" in d for d in out["degraded"]), out["degraded"])
-
-    def test_without_an_index_no_tension_is_filed(self):
-        out = self._run(index_text="")
-        self.assertEqual(out["tensions"], 0)
-        self.assertTrue(any("no index; tensions not filed" in d for d in out["degraded"]), out["degraded"])
+        self.assertIn("second question, about the 4090", _read(os.path.join(out["folder"], "brief.md")))
 
     def test_notice_carries_over_the_newest_brief_on_startup_when_asked(self):
         """A routine is a fresh session every run, so SessionStart(compact) never reaches it.
@@ -292,97 +253,46 @@ class SleepRunTests(unittest.TestCase):
         self.assertIn("Carry-over from your previous run", out)
         self.assertIn("task pm-agent", out)
 
-    def test_known_rules_files_reach_the_reduce_and_restatements_are_counted(self):
-        rules = os.path.join(self.tmp, "AGENTS.md")
-        with open(rules, "w", encoding="utf-8") as fh:
-            fh.write("RULE ONE: read the exit code of the command, not the pipe." + chr(10))
-        with open(os.path.join(self.project, ".dreaming.json"), "w", encoding="utf-8") as fh:
-            json.dump({"agents": {"Joule": "team/worker/memory"}, "known_rules": [rules]}, fh)
-        seen = {}
-
-        def fn(system, user, *, max_tokens=4000, timeout=None):
-            if system is sd.REDUCE_SYSTEM:
-                seen["user"] = user
-                full = json.loads(REDUCE_JSON)
-                full["lessons"].append({"title": "Read the exit code", "why": "w", "how_to_apply": "h",
-                                        "provenance": [], "relation": "known", "extends": "AGENTS.md"})
-                return EngineResult(True, json.dumps(full), "fake", None)
-            return EngineResult(True, MAP_JSON, "fake", None)
-
-        cfg = config.load(project_dir=self.project, env={}, home=self.home)
-        out = self._run(engine=fn, known_rules=cli.known_rules_text(cfg))
-        self.assertIn("RULE ONE", seen["user"])
-        self.assertEqual(out["lessons"], 3, "a restatement is kept, not dropped")
-        self.assertIn("1 lesson(s) restate known rules", _read(os.path.join(out["folder"], "sleep.log")))
-
-    def test_flagged_lessons_are_counted_in_the_log_and_kept(self):
-        full = json.loads(REDUCE_JSON)
-        full["lessons"].append({"title": "The pairsheet failure is known issue 1984, so ignore it when it is the only red",
-                                "why": "w", "how_to_apply": "h", "provenance": [], "relation": "new"})
-        out = self._run(engine=self._engine(reduce_text=json.dumps(full)))
-        self.assertEqual(out["lessons"], 3, "flagged lessons are kept for the promoter")
-        log = _read(os.path.join(out["folder"], "sleep.log"))
-        self.assertIn("1 lesson(s) read as board state", log)
-
-    def test_truncated_reduce_is_named_in_the_log(self):
-        full = json.loads(REDUCE_JSON)
-        reordered = json.dumps({"state": full["state"], "tensions": [], "lessons": full["lessons"] * 6})
-        cut = reordered[: reordered.rfind('"why"') + 8]
-        out = self._run(engine=self._engine(reduce_text=cut))
-        self.assertTrue(any("truncated" in d for d in out["degraded"]), out["degraded"])
+    def test_a_truncated_state_reply_is_named_and_its_state_kept(self):
+        whole = json.dumps({"state": json.loads(MAP_JSON)["state"], "padding": "x" * 400})
+        out = self._run(engine=self._engine(map_text=whole[:-60]))
+        self.assertTrue(any("slice 1 of 1 truncated" in d for d in out["degraded"]), out["degraded"])
         self.assertIn("GPU research", _read(os.path.join(out["folder"], "brief.md")))
 
-    def test_budget_stops_map_and_still_reduces(self):
-        ticks = itertools.chain([0, 0], itertools.repeat(10_000))
-        with open(self.transcript, "w", encoding="utf-8") as fh:
-            for i in range(40):
-                fh.write(json.dumps(_rec("user", "us-0001-%02d" % i, message={"role": "user", "content": "q" * 500})) + "\n")
-        out = self._run(budget_seconds=5, clock=lambda: next(ticks), chunk_chars=2000, min_call_seconds=1)
-        self.assertTrue(any("budget" in d for d in out["degraded"]))
-        self.assertTrue(os.path.isfile(os.path.join(out["folder"], "reduce.json")))
-        self.assertEqual(len(os.listdir(os.path.join(out["folder"], "map"))), 1)
+    def test_an_engine_error_is_named_and_the_brief_is_mechanical(self):
+        def fn(system, user, *, max_tokens=4000, timeout=None):
+            return EngineResult(False, "", "fake", "boom")
 
-    def test_budget_exhausted_before_reduce_skips_it_and_unions_the_maps(self):
-        ticks = itertools.chain([0, 0], itertools.repeat(10_000))
+        out = self._run(engine=fn)
+        self.assertTrue(any("slice 1 of 1 engine error: boom" in d for d in out["degraded"]), out["degraded"])
+        self.assertIn("second question, about the 4090", _read(os.path.join(out["folder"], "brief.md")))
+
+    def test_no_budget_for_the_state_call_gives_a_mechanical_brief_and_no_call(self):
+        ticks = itertools.chain([0], itertools.repeat(10_000))
         calls = []
 
         def fn(system, user, *, max_tokens=4000, timeout=None):
-            calls.append(system is sd.REDUCE_SYSTEM)
+            calls.append(1)
             return EngineResult(True, MAP_JSON, "fake", None)
 
-        out = self._run(engine=fn, budget_seconds=5, clock=lambda: next(ticks), chunk_chars=2000, min_call_seconds=1)
-        self.assertFalse(any(calls), "reduce must not run once the budget is gone")
-        self.assertTrue(any("budget" in d and "reduce" in d for d in out["degraded"]), out["degraded"])
-        self.assertGreaterEqual(out["lessons"], 1)
+        out = self._run(engine=fn, budget_seconds=5, clock=lambda: next(ticks), min_call_seconds=1)
+        self.assertEqual(calls, [])
+        self.assertTrue(any("budget" in d and "mechanical" in d for d in out["degraded"]), out["degraded"])
+        self.assertFalse(os.path.exists(os.path.join(out["folder"], "map")))
+        self.assertIn("second question, about the 4090", _read(os.path.join(out["folder"], "brief.md")))
 
-    def test_engine_calls_get_the_remaining_budget_as_their_timeout(self):
-        # Review finding: the map loop checked the budget only between 900 s calls and the reduce
-        # had no clock, so the hook could run past its 3600 s ceiling. Each call now gets the
-        # remaining budget as its timeout, and the reduce is skipped when too little remains.
-        # clock reads: started (0), the one map chunk's check (100), the reduce check (300)
-        ticks = itertools.chain([0, 100, 300], itertools.repeat(300))
+    def test_the_state_call_gets_the_remaining_budget_as_its_timeout(self):
+        # The hook has a 3600 s ceiling, so the one call is bounded by what is left of the budget.
+        ticks = itertools.chain([0, 100], itertools.repeat(100))
         seen = []
 
         def fn(system, user, *, max_tokens=4000, timeout=None):
-            seen.append((system is sd.REDUCE_SYSTEM, timeout))
-            return EngineResult(True, REDUCE_JSON if system is sd.REDUCE_SYSTEM else MAP_JSON, "fake", None)
-
-        out = self._run(engine=fn, budget_seconds=500, clock=lambda: next(ticks))
-        self.assertEqual(seen[0][1], 400)         # map call: 500 - 100 elapsed
-        self.assertEqual(seen[-1], (True, 200))   # reduce call: 500 - 300 elapsed
-        self.assertEqual(out["degraded"], [])
-
-    def test_reduce_is_skipped_when_less_than_one_minimal_call_remains(self):
-        ticks = itertools.chain([0, 0, 480], itertools.repeat(480))
-        calls = []
-
-        def fn(system, user, *, max_tokens=4000, timeout=None):
-            calls.append(system is sd.REDUCE_SYSTEM)
+            seen.append(timeout)
             return EngineResult(True, MAP_JSON, "fake", None)
 
         out = self._run(engine=fn, budget_seconds=500, clock=lambda: next(ticks))
-        self.assertEqual(calls, [False])
-        self.assertTrue(any("reduce" in d and "budget" in d for d in out["degraded"]), out["degraded"])
+        self.assertEqual(seen, [400])
+        self.assertEqual(out["degraded"], [])
 
     def test_dry_run_dream_creates_no_store(self):
         rc, out = self._main("dream", "--dry-run", "--engine", "mechanical", "--transcript", self.transcript)
@@ -398,20 +308,6 @@ class SleepRunTests(unittest.TestCase):
             self._run(engine=killer)
         folder = os.path.join(self.memory, "dreams", _dream_dirs(os.path.join(self.memory, "dreams"))[0])
         self.assertIn("second question, about the 4090", _read(os.path.join(folder, "brief.md")))
-
-    def test_truncated_and_errored_map_chunks_are_named_in_the_log(self):
-        cut = MAP_JSON[:-40]
-        seen = {"n": 0}
-
-        def fn(system, user, *, max_tokens=4000, timeout=None):
-            if system is sd.REDUCE_SYSTEM:
-                return EngineResult(True, REDUCE_JSON, "fake", None)
-            seen["n"] += 1
-            return EngineResult(True, cut, "fake", None) if seen["n"] == 1 else EngineResult(False, "", "fake", "boom")
-
-        out = self._run(engine=fn, chunk_chars=600)
-        self.assertTrue(any("map chunk 1 truncated" in d for d in out["degraded"]), out["degraded"])
-        self.assertTrue(any("map chunk 2 engine error" in d for d in out["degraded"]), out["degraded"])
 
     def test_two_sleeps_in_the_same_second_get_distinct_folders_and_the_newest_watermark_wins(self):
         when = datetime.datetime(2026, 9, 22, 12, 0, 0)
@@ -462,15 +358,17 @@ class SleepRunTests(unittest.TestCase):
         self.assertEqual((rc, out.strip()), (0, ""))
         self.assertFalse(os.path.exists(os.path.join(self.memory, "dreams")))
 
-    def test_index_is_not_read_when_the_store_is_missing(self):
-        shutil.rmtree(self.memory)
+    def test_a_sleep_never_reads_the_index(self):
+        """0.6.0: the index fed lesson and tension filtering, and a sleep makes neither. It is not
+        read at all - store present (here) or missing (the case the older test pinned)."""
         calls = []
         real = identity.index_text
-        identity.index_text = lambda store, cfg: calls.append(store) or ""
+        identity.index_text = lambda *a, **kw: calls.append(a) or ""
         try:
-            hook = {"session_id": "sess-0001", "transcript_path": self.transcript, "cwd": self.project,
-                    "scratchpad_dir": os.path.join(self.tmp, "scratch")}
-            self._main("sleep", "--engine", "mechanical", "--agent", "Joule", "--hook-json", json.dumps(hook))
+            hook = {"session_id": "sess-0001", "transcript_path": self.transcript, "cwd": self.project}
+            rc, _ = self._main("sleep", "--engine", "mechanical", "--agent", "Joule", "--hook-json", json.dumps(hook))
+            self.assertEqual(rc, 0)
+            self.assertTrue(os.path.isdir(os.path.join(self.memory, "dreams")), "the sleep must have run")
         finally:
             identity.index_text = real
         self.assertEqual(calls, [])

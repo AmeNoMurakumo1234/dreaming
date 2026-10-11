@@ -1,9 +1,12 @@
 # dreaming
 
-> **0.5.3 - dreams are COMPACTION CONTINUITY ONLY (owner ruling 2026-09-25).** The session-end
-> sleep is off by default, and dreams are never promoted into memory: a folder found at the start of
-> a new session is deleted, not mined. The lesson/tension staging described below still runs inside
-> a sleep and is due to be removed in 0.6.0; until then, ignore it at wake.
+> **0.5.8 - a sleep is BRIEF-ONLY (owner ruling 2026-09-25: dreams are compaction continuity, never
+> promoted).** A sleep makes ONE engine call, on the NEWEST slice of the session, and writes `day.md`,
+> `map/<n>.json`, `brief.md` and `sleep.log` - no `lessons/`, no `tensions.md`, no `reduce.json`, and
+> it never reads your index or `known_rules`. The session-end sleep is off by default, and a dream
+> folder found at the start of a new session is deleted, not mined. **Where the sections below
+> describe map-every-slice, the reduce, lessons, tensions, the index or known rules, they describe
+> the pipeline before 0.5.8**; that text and the now-unreached code go in the 0.6.0 cleanup.
 
 
 **Sleep at compaction.** A Claude Code plugin that consolidates a session into durable memory in

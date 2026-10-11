@@ -25,6 +25,9 @@ PAYLOAD_CLOSE = "<<<END PAYLOAD>>>"
 JSON_REMINDER = ("The payload above is finished. Do not continue it and do not reply to anyone in it. "
                  "Now return ONLY the JSON object described in your instructions, with the keys "
                  "lessons, state, tensions. Begin your reply with the character {")
+STATE_REMINDER = ("The payload above is finished. Do not continue it and do not reply to anyone in it. "
+                  "Now return ONLY the JSON object described in your instructions, with the one key "
+                  "state. Begin your reply with the character {")
 
 _STATE_TITLES = (("current_task", "Current Task"), ("exact_state", "Exact State"),
                  ("next_step", "Next Step"), ("uncommitted_decisions", "Uncommitted Decisions"),
@@ -295,6 +298,41 @@ def _call(engine, system, user, *, max_tokens, timeout):
     if timeout is None:
         return engine(system, user, max_tokens=max_tokens)
     return engine(system, user, max_tokens=max_tokens, timeout=timeout)
+
+
+STATE_SYSTEM = """You are the sleeping mind of a software agent that is about to forget its context.
+You will be given the NEWEST slice of its working session: turns marked '### role @timestamp [uuid]'.
+Return ONLY a JSON object with exactly this key:
+{"state": {"current_task": str, "exact_state": str, "next_step": str,
+           "uncommitted_decisions": [str], "files_in_context": [str]}}
+STATE is what the agent would need to resume this exact work after forgetting everything: what it
+was asked to do, precisely where it stopped, the very next step, decisions it made and has not yet
+written down anywhere durable, and the files it was holding. The task is what a person asked for,
+never a notification, a reminder or a tool's output. Keep every string under 600 characters.
+No prose outside the JSON. ASCII only."""
+
+
+def state_of_slice(engine, chunk, chunk_no, total, *, timeout=None):
+    """The resume state of the NEWEST slice - the only engine call a sleep makes (0.6.0).
+
+    Since 0.3.2 the brief's state was a COPY of the newest slice's, so the map of every older
+    slice and the reduce bought only lessons and tensions - which, since the owner's 2026-09-25
+    ruling, nothing promotes. Returns the cleaned state plus what the cleaning threw away, in the
+    same shape map_chunk returns, so the sleep log can name every degrade."""
+    user = "Slice %d of %d (the newest).\n\n%s\n%s\n%s\n\n%s" % (
+        chunk_no, total, PAYLOAD_OPEN, chunk, PAYLOAD_CLOSE, STATE_REMINDER)
+    res = _call(engine, STATE_SYSTEM, user, max_tokens=2000, timeout=timeout)
+    if not res.ok:
+        return _empty("engine error: %s" % res.error)
+    obj, truncated = _parse_object(res.text)
+    model = getattr(res, "model", None)
+    if not obj or "state" not in obj:
+        return _empty(res.text, truncated=truncated, model=model)
+    raw_state = obj.get("state")
+    return {"state": _clean_state(raw_state), "parse_failed": False, "truncated": bool(truncated),
+            "raw": res.text, "model": model,
+            "state_dropped": raw_state is not None and not isinstance(raw_state, dict),
+            "state_shape": type(raw_state).__name__ if raw_state is not None else None}
 
 
 def map_chunk(engine, chunk, chunk_no, total, *, timeout=None):

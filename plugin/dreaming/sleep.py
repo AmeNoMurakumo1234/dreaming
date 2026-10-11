@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""sleep.py - the pipeline: extract, map, reduce, write; the dream folder; the watermark.
+"""sleep.py - the pipeline: extract, read the newest slice, write the brief; the dream folder; the watermark.
 
 Ported from the quantum-concepts sleep step. Everything about WHO is dreaming and WHERE lives in
-identity.py; this module takes an out_root and an engine and does the four stages, each leaving a
+identity.py; this module takes an out_root and an engine and does the three stages, each leaving a
 file before the next engine call, and never touches anything outside <out_root>/dreams/.
+Since 0.6.0 a sleep is brief-only: one engine call on the newest slice, no lessons, no tensions,
+no reduce - a dream is compaction continuity, never promoted (owner ruling 2026-09-25).
 
 INVARIANTS (each one is a test in tests/test_sleep.py):
-  - never edits an index file or an existing lesson file
+  - never reads or edits an index file, and writes no lessons or tensions
   - every stage is on disk before the next stage's engine call; a brief before the first
   - every fallback is named in sleep.log as 'degraded: <reason>'
   - the second sleep in a session consumes only records after the first's watermark
@@ -116,9 +118,9 @@ def _write(path, text):
 
 
 def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engine_name="mechanical",
-              include_thinking=False, budget_seconds=DEFAULT_BUDGET_SECONDS, index_text="",
+              include_thinking=False, budget_seconds=DEFAULT_BUDGET_SECONDS,
               now=None, clock=time.monotonic, chunk_chars=DEFAULT_CHUNK_CHARS, cap_chars=DEFAULT_CAP_CHARS,
-              result_head=400, min_call_seconds=MIN_CALL_SECONDS, task=None, known_rules=""):
+              result_head=400, min_call_seconds=MIN_CALL_SECONDS, task=None):
     now = now or _dt.datetime.now()
     folder = _fresh_folder(out_root, session_id, now)
     log = _Log(os.path.join(folder, "sleep.log"))
@@ -127,7 +129,7 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
     log.write("sleep start | agent: %s | session: %s | engine: %s%s" % (
         agent, session_id, engine_name, (" | task: %s" % task) if task else ""))
     started = clock()
-    result = {"folder": folder, "lessons": 0, "tensions": 0, "degraded": log.degraded, "stages": {}}
+    result = {"folder": folder, "degraded": log.degraded, "stages": {}}
 
     # 1. extract - on disk before any engine call
     watermark = last_watermark(out_root, session_id)
@@ -151,113 +153,58 @@ def run_sleep(transcript_path, *, agent, session_id, out_root, engine=None, engi
     _write(os.path.join(folder, "brief.md"), sd.render_brief(sd.mechanical_state(turns), meta))
 
     state = None
-    lessons, tensions = [], []
     try:
         if engine is None:
             log.degrade("no engine - mechanical brief")
             state = sd.mechanical_state(turns)
         else:
-            # 2. map
+            # 2. read the NEWEST slice - and only it (0.6.0, quantum-concepts 1974). Since 0.3.2 the
+            # brief's state was a COPY of the newest slice's, never the reduce's choice, so mapping
+            # every older slice and reducing them bought only lessons and tensions, which nothing
+            # promotes since the owner's 2026-09-25 ruling. One call where there were N+1.
             chunks = sx.chunk_text(day, max_chars=chunk_chars)
-            maps = []
-            for i, chunk in enumerate(chunks, 1):
-                remaining = budget_seconds - (clock() - started)
-                if remaining < min_call_seconds:
-                    log.degrade("budget %ds exhausted after %d of %d chunks" % (budget_seconds, len(maps), len(chunks)))
-                    break
-                m = sd.map_chunk(engine, chunk, i, len(chunks), timeout=int(remaining))
-                _write(os.path.join(folder, "map", "%d.json" % i), json.dumps(m, ensure_ascii=True, indent=1))
+            total = len(chunks)
+            remaining = budget_seconds - (clock() - started)
+            if not total:
+                log.degrade("nothing extracted to read; brief is mechanical")
+            elif remaining < min_call_seconds:
+                log.degrade("budget %ds exhausted before the newest slice; brief is mechanical" % budget_seconds)
+            else:
+                m = sd.state_of_slice(engine, chunks[-1], total, total, timeout=int(remaining))
+                _write(os.path.join(folder, "map", "%d.json" % total), json.dumps(m, ensure_ascii=True, indent=1))
+                where = "slice %d of %d" % (total, total)
                 if m["parse_failed"]:
                     if str(m.get("raw", "")).startswith("engine error:"):
-                        log.degrade("map chunk %d engine error: %s" % (i, str(m["raw"])[14:200]))
+                        log.degrade("%s engine error: %s" % (where, str(m["raw"])[14:200]))
                     else:
-                        log.degrade("map chunk %d did not parse" % i)
+                        log.degrade("%s did not parse" % where)
                 else:
-                    # A drop is named BEFORE the "returned nothing" check, so a reply the parser
-                    # threw away is never logged as a model that said nothing (2026-09-29).
-                    dropped = int(m.get("dropped_lessons") or 0)
-                    if dropped:
-                        whole = "all dropped" if not m["lessons"] else "%d kept" % len(m["lessons"])
-                        log.degrade("map chunk %d: %d lessons in an unexpected shape, %s" % (i, dropped, whole))
                     if m.get("state_dropped"):
-                        log.degrade("map chunk %d: state in an unexpected shape (%s), dropped" % (i, m.get("state_shape")))
+                        log.degrade("%s: state in an unexpected shape (%s), dropped" % (where, m.get("state_shape")))
                     if m.get("truncated"):
-                        log.degrade("map chunk %d truncated (provider cap); salvaged %d lesson(s)" % (i, len(m["lessons"])))
-                    elif (not dropped and not m.get("state_dropped") and not m["lessons"] and not m["tensions"]
-                          and not m["state"].get("current_task")):
-                        log.degrade("map chunk %d returned no lessons and no state" % i)
-                maps.append(m)
+                        log.degrade("%s truncated (provider cap)" % where)
+                    if not m["state"].get("current_task") and not m.get("state_dropped"):
+                        log.degrade("%s returned no state" % where)
                 answered = (" | model %s" % m["model"]) if m.get("model") else ""
-                log.write("map | chunk %d/%d | %d chars | lessons %d%s" % (i, len(chunks), len(chunk), len(m["lessons"]), answered))
-            # 3. reduce
-            remaining = budget_seconds - (clock() - started)
-            if maps and remaining < min_call_seconds:
-                log.degrade("budget %ds exhausted before reduce; using the union of the map passes" % budget_seconds)
-                r = sd._union(maps)
-                _write(os.path.join(folder, "reduce.json"), json.dumps(r, ensure_ascii=True, indent=1))
-                lessons, tensions, state = r["lessons"], r["tensions"], r["state"]
-            elif maps:
-                r = sd.reduce_maps(engine, maps, index_text, max_chars=chunk_chars, timeout=int(remaining),
-                                   known_rules=known_rules)
-                _write(os.path.join(folder, "reduce.json"), json.dumps(r, ensure_ascii=True, indent=1))
-                if r.get("gave_up"):
-                    log.degrade("reduce input too large for the window; using the union of the map passes")
-                if r["parse_failed"]:
-                    log.degrade("reduce did not parse; falling back to the union of the map passes")
-                    lessons = [l for m in maps for l in m["lessons"]]
-                    tensions = [t for m in maps for t in m["tensions"]]
-                else:
-                    lessons, tensions = r["lessons"], r["tensions"]
-                    if r.get("truncated"):
-                        log.degrade("reduce reply truncated (provider cap); salvaged %d lesson(s)" % len(lessons))
-                    log.write("reduce | lessons %d | tensions %d | halved %d" % (len(lessons), len(tensions), r["halved"]))
-                    known = sum(1 for l in lessons if l.get("relation") == "known")
-                    if known:
-                        log.write("%d lesson(s) restate known rules (kept, labelled; the promoter drops them)" % known)
-            # The resume state is a COPY of the newest slice's, never the reduce's choice. Two
-            # field measurements on 2026-09-23: the reduce re-emitted the second-newest slice's
-            # state verbatim while the newest slice held the right one; and on another run the
-            # newest three slices came back empty and the reduce built a brief from six the
-            # previous evening. If the newest slice was never mapped (budget) or has no state,
-            # the mechanical state of the last turns is crude but true.
-            if maps and len(maps) == len(chunks) and maps[-1]["state"].get("current_task"):
-                state = maps[-1]["state"]
-                log.write("state: copied from slice %d of %d" % (len(maps), len(chunks)))
-            else:
-                log.degrade("newest slice yielded no state (unmapped or empty); brief is mechanical")
+                log.write("read | %s | %d chars%s" % (where, len(chunks[-1]), answered))
+                if not m["parse_failed"] and m["state"].get("current_task"):
+                    state = m["state"]
+                    log.write("state: from %s (only the newest slice is read)" % where)
+            if state is None:
+                if total and remaining >= min_call_seconds:
+                    log.degrade("newest slice yielded no state (unread or empty); brief is mechanical")
                 state = sd.mechanical_state(turns)
     except Exception as exc:  # the hook must never die on an engine or a bug
         log.degrade("exception: %s" % exc)
         log.write(traceback.format_exc())
         state = state or sd.mechanical_state(turns)
 
-    # 4. write - label what a rule can recognise (never drop on it), and a tension must name an
-    # entry the mind actually holds
-    lessons, flagged = sd.flag_lessons(lessons, index_text)
-    if flagged["board_state"]:
-        log.write("%d lesson(s) read as board state (kept, flagged; the promoter drops them)" % flagged["board_state"])
-    if flagged["restates_index"]:
-        log.write("%d lesson(s) match an index entry by title (labelled extends)" % flagged["restates_index"])
-    tensions, dropped = sd.filter_tensions(tensions, index_text)
-    if dropped and not index_text:
-        log.degrade("no index; tensions not filed (%d dropped)" % dropped)
-    elif dropped:
-        log.degrade("%d tension(s) named entries not in the index; dropped" % dropped)
+    # 3. write - the brief, and nothing to promote: no lessons, no tensions (0.6.0)
     state, replaced = sd.guard_task(state, turns)
     if replaced:
         log.degrade("the state named a system payload as the task; replaced with the last real request")
     _write(os.path.join(folder, "brief.md"), sd.render_brief(state, meta))
-    os.makedirs(os.path.join(folder, "lessons"), exist_ok=True)
-    used = set()
-    for lesson in lessons:
-        slug = sd.slugify(lesson["title"])
-        while slug in used:
-            slug += "-2"
-        used.add(slug)
-        _write(os.path.join(folder, "lessons", slug + ".md"), sd.render_lesson(lesson, meta))
-    _write(os.path.join(folder, "tensions.md"), sd.render_tensions(tensions, meta))
-    result["lessons"], result["tensions"] = len(lessons), len(tensions)
-    log.write("write | lessons %d | tensions %d | %.1fs" % (len(lessons), len(tensions), clock() - started))
+    log.write("write | brief | %.1fs" % (clock() - started))
     log.write("engine: %s" % engine_name)
     return result
 

@@ -29,7 +29,6 @@ for p in (PLUGIN, HERE):
 
 from dreaming import distill as sd, engines as se, sleep as sl  # noqa: E402
 from dreaming.engines import EngineResult  # noqa: E402
-from test_distill import INDEX_TEXT, REDUCE_JSON  # noqa: E402
 from test_extract import write_fixture  # noqa: E402
 from test_sleep import _fake_project  # noqa: E402
 
@@ -151,17 +150,15 @@ class SleepLogTests(unittest.TestCase):
 
     def _sleep(self, map_reply, model=None):
         def engine(system, user, *, max_tokens=4000, timeout=None):
-            text = REDUCE_JSON if system is sd.REDUCE_SYSTEM else json.dumps(map_reply)
-            return EngineResult(True, text, "fake", None, model)
+            return EngineResult(True, json.dumps(map_reply), "fake", None, model)
         return sl.run_sleep(self.transcript, agent="Joule", session_id="sess-0001", out_root=self.memory,
-                            engine=engine, engine_name="fake", index_text=INDEX_TEXT)
+                            engine=engine, engine_name="fake")
 
-    def test_a_chunk_whose_every_lesson_is_misshapen_says_so(self):
+    def test_a_misshapen_state_says_so_rather_than_returned_nothing(self):
         out = self._sleep(WRONG_SHAPES["lessons as strings, state as a list"])
         joined = " | ".join(out["degraded"])
-        self.assertIn("map chunk 1: 3 lessons in an unexpected shape, all dropped", joined)
-        self.assertIn("map chunk 1: state in an unexpected shape (list), dropped", joined)
-        self.assertNotIn("returned no lessons", joined)
+        self.assertIn("slice 1 of 1: state in an unexpected shape (list), dropped", joined)
+        self.assertNotIn("returned no state", joined)
 
     def test_the_answering_model_is_written_to_the_sleep_log(self):
         out = self._sleep({"state": {"current_task": "t"}, "tensions": [],

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.8 - 2026-10-10
+
+**A sleep is brief-only, and it reads only the newest slice** - the last behaviour of the approved
+0.6.0 cut (quantum-concepts 1974, owner ruling 2026-09-25: a dream is continuity across a compaction
+and is never promoted). Since 0.3.2 the brief's state was a COPY of the newest slice's, never the
+reduce's choice, so mapping every older slice and reducing them bought only lessons and tensions,
+which nothing promotes any more. Now a sleep makes ONE engine call - `distill.state_of_slice`, with a
+state-only prompt and reminder - on the newest slice, where it used to make one per slice plus a
+reduce. It writes `day.md`, `map/<n>.json`, `brief.md` and `sleep.log`; no `lessons/`, `tensions.md`
+or `reduce.json`. It never reads the index or the `known_rules` files (`cli.known_rules_text` is
+gone). Every fallback is still named: no budget left for the call, an engine error, a reply that does
+not parse, a misshapen or truncated state, and an empty state each log a `degraded:` line and fall
+back to the mechanical brief of the last turns. The call gets the remaining budget as its timeout.
+
+Tests: the reduce, lesson, tension, known-rules and multi-slice budget tests are replaced by the new
+contract (one call, on the newest slice, state-only prompt, nothing to promote written, index never
+read; every degrade named). Six mutants watched red: the oldest slice read instead, the old lesson
+reminder, the old map prompt, a tensions.md written, the call left unbounded, the budget check
+removed. 162 pass.
+
+NOT DONE HERE - the 0.6.0 cleanup: the now-unreached map/reduce/lesson/tension code in `distill.py`
+and its tests, `identity.index_text` and the `known_rules`/`index_file`/`indexes` config keys, the
+`N lesson(s), N tension(s)` counts in `list`/`notice`/reseed, and the README and SKILL sections that
+still describe the old pipeline (both carry a banner saying so).
+
 ## 0.5.7 - 2026-10-02
 
 **The reaper.** Dreams are continuity across a compaction for the session that made them (owner
