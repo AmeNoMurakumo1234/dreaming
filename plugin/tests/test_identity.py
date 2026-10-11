@@ -136,18 +136,6 @@ class IdentityTests(unittest.TestCase):
         self.assertFalse(res.scratch)
         self.assertEqual(os.path.normcase(res.store), os.path.normcase(store))
 
-    def test_index_text_reads_bounded_lines_or_empty(self):
-        store = os.path.join(self.tmp, "store")
-        os.makedirs(store)
-        cfg = self._cfg()
-        self.assertEqual(identity.index_text(store, cfg), "")
-        with open(os.path.join(store, "MEMORY.md"), "w", encoding="utf-8") as fh:
-            fh.write("# index\n\n- [a-slug](a-slug.md) - " + "x" * 500 + "\n- [b-slug](b-slug.md) - short\n")
-        text = identity.index_text(store, cfg)
-        lines = text.splitlines()
-        self.assertEqual(len(lines), 3)
-        self.assertTrue(all(len(l) <= 118 for l in lines))
-        self.assertIn("b-slug", text)
 
     def test_scratch_root_prefers_hook_scratchpad(self):
         root = identity.scratch_root({"scratchpad_dir": os.path.join(self.tmp, "sp")})
@@ -158,25 +146,6 @@ class IdentityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class IndexPathTests(unittest.TestCase):
-    def test_index_file_may_be_an_absolute_path_outside_the_store(self):
-        """Field report 2026-09-23: a lane's real index lived outside its store and a
-        store-relative name could not reach it, so no lesson was ever marked extends."""
-        import tempfile, shutil
-        tmp = tempfile.mkdtemp(prefix="dreaming-idx-")
-        try:
-            idx = os.path.join(tmp, "elsewhere", "INDEX.md")
-            os.makedirs(os.path.dirname(idx))
-            with open(idx, "w", encoding="utf-8") as fh:
-                fh.write("- a-real-entry - A real entry" + chr(10))
-            store = os.path.join(tmp, "store")
-            os.makedirs(store)
-            text = identity.index_text(store, {"index_file": idx})
-            self.assertIn("a-real-entry", text)
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
 
 
 TAG = '<scheduled-task name="pm-agent" file="tasks/pm-agent/SKILL.md">'
@@ -246,7 +215,7 @@ class ScheduledTaskIdentityTests(unittest.TestCase):
         self.assertEqual(os.path.basename(res.store), "pm-agent")
 
 
-class PerAgentIndexAndFallbackTests(unittest.TestCase):
+class AgentsFallbackTests(unittest.TestCase):
     """Field report on 0.4.0: a lane's index lives outside its store and is SEVERAL files; and a
     map that names only the interactive agent sent every routine's dream to scratch, undoing the
     lane split. Both are config, both opt-in, neither changes a store that does not ask."""
@@ -264,21 +233,6 @@ class PerAgentIndexAndFallbackTests(unittest.TestCase):
             json.dump(project_json, fh)
         return config.load(project_dir=self.project, env={}, home=self.home)
 
-    def test_indexes_map_reads_several_files_for_one_agent_and_skips_a_missing_one(self):
-        a = os.path.join(self.tmp, "a", "INDEX.md"); os.makedirs(os.path.dirname(a))
-        b = os.path.join(self.tmp, "b", "INDEX.md"); os.makedirs(os.path.dirname(b))
-        with open(a, "w", encoding="utf-8") as fh:
-            fh.write("- from-a - A" + chr(10))
-        with open(b, "w", encoding="utf-8") as fh:
-            fh.write("- from-b - B" + chr(10))
-        store = os.path.join(self.tmp, "store"); os.makedirs(store)
-        with open(os.path.join(store, "MEMORY.md"), "w", encoding="utf-8") as fh:
-            fh.write("- from-store - S" + chr(10))
-        cfg = self._cfg({"indexes": {"Joule": [a, b, os.path.join(self.tmp, "missing.md")]}})
-        text = identity.index_text(store, cfg, agent="Joule")
-        self.assertIn("from-a", text); self.assertIn("from-b", text)
-        self.assertNotIn("from-store", text, "a per-agent list replaces the store index, it does not add to it")
-        self.assertIn("from-store", identity.index_text(store, cfg, agent="Other"))
 
     def test_agents_fallback_store_root_gives_an_unmapped_name_its_own_store(self):
         os.makedirs(os.path.join(self.project, "team", "worker", "memory"))

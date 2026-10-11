@@ -82,7 +82,7 @@ python -m dreaming.cli dream --dry-run --transcript "~/.claude/projects/<project
 ```
 
 The dream lands under your temp directory (`dreaming/dreams/...`), and the output prints the
-folder, the engine, and the lesson and tension counts. `python -m dreaming.cli config` prints the
+folder, the engine, and any `degraded:` reasons. `python -m dreaming.cli config` prints the
 effective configuration and which layers contributed. The installed plugin's directory is shown by
 `claude plugin details dreaming`.
 

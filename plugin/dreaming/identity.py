@@ -25,7 +25,6 @@ Resolution = namedtuple("Resolution", "agent source store scratch reason")
 
 _NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 SCRATCH_SUBDIR = "dreaming"
-INDEX_LINE_CAP = 118
 
 
 def _git_user_name(cwd, run):
@@ -150,34 +149,3 @@ def ensure_store(res):
     return res.store
 
 
-def _index_lines(path):
-    if not os.path.isfile(path):
-        return []
-    out = []
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            line = line.rstrip(chr(10))
-            if not line.strip():
-                continue
-            out.append(line if len(line) <= INDEX_LINE_CAP else line[:INDEX_LINE_CAP - 3].rstrip() + "...")
-    return out
-
-
-def index_paths(store, cfg, agent=None):
-    """The index file(s) for this agent: the `indexes` map's list when it names the agent (absolute
-    or ~-relative, several allowed - a lane whose real index lives outside its store), else the
-    one <store>/<index_file>."""
-    listed = (cfg.get("indexes") or {}).get(agent or "")
-    if isinstance(listed, str):
-        listed = [listed]
-    if listed:
-        return [os.path.expanduser(str(p)) for p in listed]
-    return [os.path.join(store, str(cfg.get("index_file") or "MEMORY.md"))]
-
-
-def index_text(store, cfg, agent=None):
-    """One bounded line per non-blank line of every index file, in order; '' if none exist."""
-    out = []
-    for path in index_paths(store, cfg, agent):
-        out.extend(_index_lines(path))
-    return chr(10).join(out) + (chr(10) if out else "")

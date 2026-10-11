@@ -298,15 +298,6 @@ def dreams_awaiting(out_root, *, stale_days=DREAM_STALE_DAYS, now=None):
         path = os.path.join(root, name)
         if not os.path.isdir(path):
             continue
-        lessons_dir = os.path.join(path, "lessons")
-        lessons = (len([f for f in os.listdir(lessons_dir) if f.endswith(".md")])
-                   if os.path.isdir(lessons_dir) else 0)
-        tensions = 0
-        tpath = os.path.join(path, "tensions.md")
-        if os.path.isfile(tpath):
-            with open(tpath, "r", encoding="utf-8", errors="replace") as fh:
-                tensions = sum(1 for line in fh if line.startswith("## IN-TENSION"))
         age_days = max(0.0, (now - os.path.getmtime(path)) / 86400.0)
-        out.append({"name": name, "path": path, "lessons": lessons, "tensions": tensions,
-                    "age_days": age_days, "stale": age_days > stale_days})
+        out.append({"name": name, "path": path, "age_days": age_days, "stale": age_days > stale_days})
     return out

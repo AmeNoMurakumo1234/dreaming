@@ -163,13 +163,10 @@ def cmd_reseed(args):
             return 0
         with open(os.path.join(folder, "brief.md"), "r", encoding="utf-8", errors="replace") as fh:
             brief = fh.read()
-        mine = next((d for d in sl.dreams_awaiting(os.path.dirname(os.path.dirname(folder)))
-                     if os.path.normcase(d["path"]) == os.path.normcase(folder)), None)
-        staged = (" - %d lesson(s), %d tension(s) staged" % (mine["lessons"], mine["tensions"])) if mine else ""
         tail = ("\n\n(dreaming re-seed: this brief was written by the sleep step before compaction. "
-                "Dream folder: %s%s. It exists to carry THIS session across the compaction and is not "
+                "Dream folder: %s. It exists to carry THIS session across the compaction and is not "
                 "memory - delete it once the session no longer needs it.)"
-                % (folder, staged))
+                % folder)
         print(_hook_context(brief + tail))
     except Exception as exc:
         # stderr: a SessionStart hook's stdout becomes model context, and a diagnostic is not context
@@ -250,8 +247,7 @@ def cmd_notice(args):
                          "Dreams carry one session across a compaction and are never mined for lessons "
                          "(owner ruling 2026-09-25) - delete each folder." % (len(dreams), res.store, res.agent))
             for d in dreams:
-                lines.append("  %s - %d lesson(s), %d tension(s)%s" % (
-                    d["name"], d["lessons"], d["tensions"], "  STALE" if d["stale"] else ""))
+                lines.append("  %s - %.1f days%s" % (d["name"], d["age_days"], "  STALE" if d["stale"] else ""))
         if not lines:
             return 0
         print(_hook_context(chr(10).join(lines),"UserPromptSubmit" if prompt_mode else "SessionStart"))
@@ -315,8 +311,7 @@ def cmd_list(args):
         print("no dream folders left for %s in %s" % (res.agent, res.store))
         return 0
     for d in dreams:
-        print("%s  -  %d lesson(s), %d tension(s), %.1f days%s" % (
-            d["name"], d["lessons"], d["tensions"], d["age_days"], "  STALE" if d["stale"] else ""))
+        print("%s  -  %.1f days%s" % (d["name"], d["age_days"], "  STALE" if d["stale"] else ""))
     return 0
 
 

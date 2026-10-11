@@ -89,8 +89,8 @@ class InstructionsArriveTests(unittest.TestCase):
             self.assertIn(line, stdin)
         self.assertLess(stdin.index("THIRD instruction line"), stdin.index("THE PAYLOAD"))
 
-    def test_a_real_map_prompt_survives_the_cmd_exe_cut(self):
-        """The schema line of MAP_SYSTEM is not on its first line, so it only arrives if the
+    def test_the_real_state_prompt_survives_the_cmd_exe_cut(self):
+        """The schema line of STATE_SYSTEM is not on its first line, so it only arrives if the
         instructions travel off the command line."""
         seen = {}
 
@@ -99,8 +99,8 @@ class InstructionsArriveTests(unittest.TestCase):
             seen["received"] = received
             return _Done(json.dumps({"is_error": False, "result": "{}"}))
 
-        se.claude_complete({"model": "haiku"}, sd.MAP_SYSTEM, "slice", run=run)
-        self.assertIn("Return ONLY a JSON object with exactly these keys", seen["received"])
+        se.claude_complete({"model": "haiku"}, sd.STATE_SYSTEM, "slice", run=run)
+        self.assertIn("Return ONLY a JSON object with exactly this key", seen["received"])
 
     def test_the_smoke_test_fails_when_the_instructions_do_not_arrive(self):
         """CONTROL: a model that never sees the system text answers a polite OK. Before 0.5.4 the
@@ -120,23 +120,20 @@ class InstructionsArriveTests(unittest.TestCase):
 
 
 class DroppedShapesTests(unittest.TestCase):
-    def _map(self, reply):
-        engine = lambda s, u, *, max_tokens=4000: EngineResult(True, json.dumps(reply), "fake", None)
-        return sd.map_chunk(engine, "slice", 1, 1)
+    def _read(self, reply):
+        engine = lambda s, u, *, max_tokens=4000, timeout=None: EngineResult(True, json.dumps(reply), "fake", None)
+        return sd.state_of_slice(engine, "slice", 1, 1)
 
-    def test_lessons_in_an_unexpected_shape_are_counted_not_silently_lost(self):
-        m = self._map(WRONG_SHAPES["lessons as strings, state as a list"])
-        self.assertEqual((len(m["lessons"]), m["dropped_lessons"]), (0, 3))
+    def test_a_state_in_an_unexpected_shape_is_counted_not_silently_lost(self):
+        m = self._read(WRONG_SHAPES["lessons as strings, state as a list"])
         self.assertTrue(m["state_dropped"])
-        m = self._map(WRONG_SHAPES["lessons keyed lesson/evidence"])
-        self.assertEqual((len(m["lessons"]), m["dropped_lessons"]), (0, 2))
-        self.assertFalse(m["state_dropped"])
+        self.assertEqual(m["state_shape"], "list")
+        self.assertFalse(m["state"].get("current_task"))
 
-    def test_a_well_shaped_reply_drops_nothing(self):
-        good = {"state": {"current_task": "t"}, "tensions": [],
-                "lessons": [{"title": "A real lesson", "why": "w", "how_to_apply": "h", "provenance": []}]}
-        m = self._map(good)
-        self.assertEqual((len(m["lessons"]), m["dropped_lessons"], m["state_dropped"]), (1, 0, False))
+    def test_a_well_shaped_state_drops_nothing(self):
+        m = self._read(WRONG_SHAPES["lessons keyed lesson/evidence"])
+        self.assertFalse(m["state_dropped"])
+        self.assertEqual(m["state"]["current_task"], "shipping a fix")
 
 
 class SleepLogTests(unittest.TestCase):

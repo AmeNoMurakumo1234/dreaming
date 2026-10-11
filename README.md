@@ -1,31 +1,24 @@
 # dreaming
 
-> **0.5.8 - a sleep is BRIEF-ONLY (owner ruling 2026-09-25: dreams are compaction continuity, never
-> promoted).** A sleep makes ONE engine call, on the NEWEST slice of the session, and writes `day.md`,
-> `map/<n>.json`, `brief.md` and `sleep.log` - no `lessons/`, no `tensions.md`, no `reduce.json`, and
-> it never reads your index or `known_rules`. The session-end sleep is off by default, and a dream
-> folder found at the start of a new session is deleted, not mined. **Where the sections below
-> describe map-every-slice, the reduce, lessons, tensions, the index or known rules, they describe
-> the pipeline before 0.5.8**; that text and the now-unreached code go in the 0.6.0 cleanup.
-
-
-**Sleep at compaction.** A Claude Code plugin that consolidates a session into durable memory in
-the moment the harness is about to forget it.
+**Sleep at compaction.** A Claude Code plugin that carries a session across the moment the harness
+is about to forget it.
 
 Claude Code compacts a session when its context fills. The compaction summary is written by the
-harness, it is silent, and it drops things. `dreaming` puts a blocking hook at that moment: it
-reads the full transcript, distils it into candidate lessons, a five-field resume brief and the
-tensions it found with what you already believe, stages all of it in your memory store, and after
-compaction re-seeds the fresh context from the brief. At the next session start it tells you how
-many dreams are waiting, and a skill teaches the promotion step. The built-in summary still
-happens. What changes is that nothing worth keeping has to survive it.
+harness, it is silent, and it drops things. `dreaming` puts a blocking hook at that moment: it reads
+the newest slice of the transcript, writes a five-field resume brief into your memory store, and
+after compaction re-seeds the fresh context from that brief. The built-in summary still happens.
+What changes is that the exact task, the exact stopping point and the next step survive it.
+
+**A dream is continuity, not memory.** It carries ONE session across a compaction and is never
+promoted into lessons (since 0.6.0). A dream folder found at the start of a new session has nothing
+left to carry, so the notice says to delete it, and the reaper clears old ones on its own.
 
 ## What it does
 
 | When | Hook | Effect |
 |---|---|---|
-| Context about to compact | `PreCompact`, blocking, one-hour ceiling | extract, map each slice, reduce against your index, write a dream folder |
-| The session ends | `SessionEnd` (capped at 60 s) | if enough is new since the last watermark, the same sleep runs in a detached child that outlives the session |
+| Context about to compact | `PreCompact`, blocking, one-hour ceiling | extract the transcript, read its newest slice for the resume state (one engine call), write a dream folder, reap other sessions' old ones |
+| The session ends (OFF by default; `sessionend.enabled` opts in) | `SessionEnd` (capped at 60 s) | if enough is new since the last watermark, the same sleep runs in a detached child that outlives the session |
 | Right after compaction | `SessionStart` (`compact`) | the newest brief for this session is injected as context |
 | First prompt of a session, or a resume | `UserPromptSubmit` (first prompt only), `SessionStart` (`resume`) | "N dream folder(s) left in <store> ... delete each folder"; with `reseed_on_startup`, a scheduled run also receives its own task's previous brief. Never at `SessionStart` (`startup`): it fires before the scheduled-task tag is in the transcript, so it could only guess who is waking - and the guess was whoever owns the clone |
 
@@ -40,25 +33,22 @@ under that name (on Windows, not the Store stub).
 
 ```
 <store>/dreams/20260922-125402-2def5d4e/        (local time, then the session's first 8 chars)
-  day.md            the extracted transcript
-  map/1.json ...    the model's notes per slice
-  reduce.json       the merge, matched against your index
+  day.md            the extracted transcript since this session's last sleep
+  map/<n>.json      the model's reply for the newest slice (n of n) - the only slice it reads
   brief.md          Current Task / Exact State / Next Step / Uncommitted Decisions / Files In Context
-  lessons/*.md      candidate lessons with provenance, "extends: <slug>" when they extend an entry
-  tensions.md       contradictions with your entries, both sides, deliberately unresolved
   sleep.log         engine, timings, every "degraded:" line, the watermark for the next sleep
 ```
 
 Beside the folders, `<store>/dreams/.watermark-<session>.txt` records where this session's last
-sleep stopped. Promotion deletes the folder; the file stays, so the next sleep continues from it
-instead of re-dreaming the whole session.
+sleep stopped, so the next sleep in the same session continues from it instead of re-reading the
+whole session - even if you deleted the folder in between.
 
 ## The one design rule
 
-**Staging only. The mind promotes.** The plugin never writes your index and never resolves a
-tension. A dream is a candidate written by a model that read your day without your judgement;
-the `dreaming-promote` skill is the procedure by which you keep, extend, drop or hold each item,
-then delete the folder. Auto-promotion is deliberately not a feature of this release.
+**A sleep writes only inside `<store>/dreams/`.** It never reads or writes your index, never edits a
+memory file, and never decides anything for you. If the engine cannot answer - no budget left, an
+error, a reply it cannot parse, an empty state - the brief falls back to a mechanical one built from
+the last turns, and `sleep.log` names why. Compaction is never blocked on a dream.
 
 ## Configuration in one minute
 
@@ -72,9 +62,7 @@ environment variables on top. The two settings most people touch:
 }
 ```
 
-`known_rules` names files (a rules file, a charter) the reduce is told you already hold, so a
-lesson that only restates one arrives labelled for you to drop; `indexes` maps an agent to the
-index files that stand in for the store's own. `openai_compatible` can also be a list of servers in preference order (the first that answers
+`openai_compatible` can also be a list of servers in preference order (the first that answers
 is used, a dead one is skipped), and each server takes a `max_tokens` for reasoning models that
 spend the reply budget thinking. A repository with several agents sharing one clone maps each to
 its own store:
@@ -103,9 +91,8 @@ transcript without touching a store.
 ## Where it came from
 
 Built from the sleep step shipped inside the quantum-concepts repository on 2026-09-22, where it
-runs against a team of eight agents with private per-agent stores. The mechanism is the same; the
-four repo-bound seams (identity, store health, the index, the model client) became configuration
-and a stdlib client. The idea is not novel (sleep-time compute, memory consolidation agents,
+runs against a team of eight agents with private per-agent stores. The repo-bound seams (identity,
+store health, the model client) became configuration and a stdlib client. The idea is not novel (sleep-time compute, memory consolidation agents,
 PreCompact recovery hooks all exist); what this one holds to is the per-agent store with rules,
 and consolidation at the exact moment the harness forgets.
 

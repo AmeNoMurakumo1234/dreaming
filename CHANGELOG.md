@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 - 2026-10-10
+
+**The 0.6.0 cut is complete: the lesson machinery is gone, not just unreached.** 0.5.8 made a sleep
+brief-only; this removes what nothing calls any more and stops every surface from describing it.
+
+- `distill.py` 533 -> 207 lines: the map prompt, the reduce and its halving, lesson and tension
+  cleaning, flagging and rendering, the index bounding and `slugify` are deleted. What remains is the
+  state call, the parser behind it, the system-payload guard, the mechanical state and the brief.
+- `identity.index_text` / `index_paths` and the `index_file`, `indexes` and `known_rules` config keys
+  are removed. An old config that still sets them is harmless: unknown keys are ignored.
+- `dreams_awaiting` no longer counts lessons or tensions, and `list`, the start notice and the
+  re-seed tail stop printing "N lesson(s), N tension(s)" - they print a folder's age.
+- README, the `dreaming` skill and INSTALL describe the brief-only sleep; the 0.5.8 banners are gone.
+
+Tests: the tests of removed code are removed with it (148 pass). The display change was watched red
+first. Verified end to end on a real transcript with the `claude` engine (dry run, scratch): one call
+on slice 2 of 2, 26.6 s, no degraded lines, a brief that matched the session, and a folder holding
+only day.md, map/2.json, brief.md and sleep.log.
+
 ## 0.5.8 - 2026-10-10
 
 **A sleep is brief-only, and it reads only the newest slice** - the last behaviour of the approved

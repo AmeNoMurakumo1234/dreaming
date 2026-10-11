@@ -3,36 +3,32 @@ name: dreaming
 description: "What the dreaming plugin does at compaction, the dream folder contract, and how to configure it (store root, agents map, engines). Load when a session mentions leftover dream folders, when configuring which store an agent dreams into, when a sleep hook's output needs reading, or when asked what dreaming is."
 ---
 
-> **0.5.8 - a sleep is BRIEF-ONLY (owner ruling 2026-09-25: dreams are compaction continuity, never
-> promoted).** A sleep makes ONE engine call, on the NEWEST slice of the session, and writes `day.md`,
-> `map/<n>.json`, `brief.md` and `sleep.log` - no `lessons/`, no `tensions.md`, no `reduce.json`, and
-> it never reads your index or `known_rules`. The session-end sleep is off by default, and a dream
-> folder found at the start of a new session is deleted, not mined. **Where the sections below
-> describe map-every-slice, the reduce, lessons, tensions, the index or known rules, they describe
-> the pipeline before 0.5.8**; that text and the now-unreached code go in the 0.6.0 cleanup.
-
-
 # dreaming
 
 Claude Code compacts a session when its context fills. The compaction summary is written by the
 harness, it is silent, and it drops things. This plugin puts a blocking hook at that moment: it
-reads the full transcript, distils it into candidate lessons, a five-field resume brief and the
-tensions it found with what you already believe, stages all of it in your memory store, and after
-compaction re-seeds the fresh context from the brief. The built-in summary still happens. What
-changes is that nothing worth keeping has to survive it.
+reads the NEWEST slice of the transcript, writes a five-field resume brief into your memory store,
+and after compaction re-seeds the fresh context from that brief. The built-in summary still
+happens. What changes is that the exact task, stopping point and next step survive it.
+
+**A dream is continuity across ONE compaction, never memory** (owner ruling 2026-09-25). Since 0.6.0
+a sleep is brief-only: no lessons, no tensions, no reduce, and the index is never read. A dream
+folder found at the start of a NEW session has nothing left to carry - delete it; the reaper
+clears other sessions' old ones on its own. If an old doc, prompt or notice tells you to promote a
+dream into lessons, it predates 0.5.3 and is stale.
 
 ## What happens, and when
 
 | Event | Hook | What it does |
 |---|---|---|
-| Context about to compact (manual or automatic) | `PreCompact`, blocking, one-hour ceiling | extract the transcript, map each slice, reduce against your index, write a dream folder |
-| The session ends (exit, `/clear`, a `claude -p` run finishing) | `SessionEnd`, capped at 60 s by Claude Code | decide in under a second whether enough transcript is new since the last watermark (`sessionend.min_chars`), then hand the same sleep to a DETACHED windowless child that outlives the session; its dream is reported by the next start notice |
+| Context about to compact (manual or automatic) | `PreCompact`, blocking, one-hour ceiling | extract the transcript, read its newest slice for the resume state (ONE engine call), write a dream folder, reap other sessions' folders older than `reap_days` |
+| The session ends (exit, `/clear`, a `claude -p` run finishing) - OFF by default since 0.5.3 | `SessionEnd`, capped at 60 s by Claude Code | when opted in, decide in under a second whether enough transcript is new since the last watermark (`sessionend.min_chars`), then hand the same sleep to a DETACHED windowless child that outlives the session; its dream is reported by the next start notice |
 | Right after compaction | `SessionStart` with the `compact` matcher | re-inject the newest brief for this session as context |
 | A new or resumed session | `SessionStart` with `startup` or `resume` | one line: how many dream folders are left, and where - delete them; with `reseed_on_startup`, the CARRY-OVER first (below) |
 
-The session is genuinely asleep during the first one. A full transcript of a long day through a
-local 27B model takes two to three minutes; the ceiling is an hour and a wall-clock budget inside
-it (default 50 minutes) stops the work early and writes what it has.
+The session is genuinely asleep during the first one, but briefly: one call on one slice of at
+most `chunk_chars`. The ceiling is an hour and a wall-clock budget inside it (default 900 s) bounds
+the call; when too little budget remains the call is skipped and the brief is mechanical.
 
 ## The dream folder
 
@@ -41,21 +37,16 @@ it (default 50 minutes) stops the work early and writes what it has.
 | File | What it is |
 |---|---|
 | `day.md` | the extracted transcript: user and assistant text, tool names, trimmed tool results, one `### role @time [uuid]` marker per turn |
-| `map/<n>.json` | the model's notes per slice |
-| `reduce.json` | the merged notes, matched against your index |
-| `brief.md` | the resume brief: Current Task, Exact State, Next Step, Uncommitted Decisions, Files Currently In Context - a COPY of the newest slice's state (since 0.3.2 the reduce never chooses it) |
-| `lessons/<slug>.md` | one candidate lesson each: title, why, how to apply, provenance (session and turn uuids); `extends: <slug>` when it extends an entry you already hold; `restates a known rule: <file>` when it only restates a `known_rules` file (kept for you to drop, never dropped by the tool); `scope: generalised` when it reaches past what the session showed (test it hardest); `flag: reads as board state` when it is phrased as a known issue or an instruction to ignore something (drop it: promoted, it is a standing permission that goes stale); `flag: the title matches an index entry` when a rule matched it to an entry the model did not (fold in or drop) |
-| `tensions.md` | contradictions with your existing entries, both sides stated, deliberately NOT resolved |
+| `map/<n>.json` | the model's reply for the newest slice (n of n) - the only slice a sleep reads |
+| `brief.md` | the resume brief: Current Task, Exact State, Next Step, Uncommitted Decisions, Files Currently In Context - the newest slice's state, verbatim, or the mechanical state of the last turns |
 | `sleep.log` | the run: engine, per-stage timings, every `degraded: <reason>` line, and the `watermark:` uuid the next sleep in this session continues from |
 
 Beside the folders, `<store>/dreams/.watermark-<session>.txt` holds where this session's last
-sleep stopped. It is a file, not a folder, so nothing counts it as a dream, and promotion (which
-deletes the folder) leaves it alone: the next sleep in the session continues from it. Before
-0.3.1 the watermark lived only in sleep.log and died with the promoted folder, so the third sleep
-of a session re-dreamed the whole transcript.
+sleep stopped. It is a file, not a folder, so nothing counts it as a dream, and deleting a folder
+leaves it alone: the next sleep in the session continues from it rather than re-reading the whole
+transcript.
 
-A dream is a CANDIDATE, not a fact. The plugin never writes your index and never resolves a
-tension; the `dreaming-promote` skill is the procedure by which you do.
+A sleep writes ONLY inside `<store>/dreams/`. It never reads or writes your index or any memory file.
 
 ## Configuration
 
@@ -71,18 +62,16 @@ variables `DREAMING_AGENT`, `DREAMING_DISABLED=1`, `DREAMING_STORE_ROOT`, `DREAM
   "agent": "auto",
   "agents": {},
   "agents_fallback": "scratch",
-  "indexes": {},
-  "known_rules": [],
   "identity_order": ["scheduled_task", "env", "config", "transcript", "git", "default"],
   "engines": ["openai_compatible", "claude", "mechanical"],
   "openai_compatible": {"base_url": "http://127.0.0.1:8081", "api_key_file": "", "api_key_env": "DREAMING_API_KEY",
                         "model": "local", "timeout": 900, "max_tokens": 0, "label": ""},
   "claude": {"model": "opus", "timeout": 900},
   "chunk_chars": 60000, "cap_chars": 400000, "budget_seconds": 900,
-  "sessionend": {"enabled": true, "min_chars": 20000},
+  "sessionend": {"enabled": false, "min_chars": 20000},
   "reseed_on_startup": false, "reseed_max_age_hours": 48,
   "result_head": 400, "include_thinking": false,
-  "index_file": "MEMORY.md", "stale_days": 14
+  "stale_days": 14, "reap_days": 14
 }
 ```
 
@@ -96,7 +85,9 @@ watermark and, at `min_chars` or more, starts the ordinary `sleep` as a detached
 (`python.exe` with CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP and CREATE_BREAKAWAY_FROM_JOB,
 stdin closed, output to `<scratch>/exit-<session>.log`). Below `min_chars` nothing is spawned, which
 is what keeps a `claude -p "Reply OK"` from dreaming. `enabled: false` here turns off only the
-exit sleep; compaction still sleeps.
+exit sleep; compaction still sleeps. It defaults to `false` since 0.5.3: dreams are compaction
+continuity, and a sleep at session end carries nothing anywhere. `reap_days` (default 14, 0 = off)
+is how old another session's dream folder or watermark must be before a sleep removes it.
 
 `openai_compatible` may also be a LIST of endpoint dicts in preference order, each with its own
 `base_url`, key, model, timeout and `max_tokens`, and an optional `label` for the logs:
@@ -142,20 +133,6 @@ worked) or point at a server that does not split.
 4. An unmapped default store is created by the sleep that first writes into it, and by nothing
    else: `notice`, `reseed`, `list` and a `--dry-run` dream create no directories.
 5. Scratch is the hook's scratchpad directory when it gives one, else `<tempdir>/dreaming/`.
-6. The index is `<store>/<index_file>` when present, one bounded line per entry, and the reduce
-   uses it to mark each lesson `new` or `extends: <slug>`. `index_file` may be an ABSOLUTE path
-   for a lane whose real index lives outside its store, and `indexes` maps an agent to a LIST of
-   index files (absolute or ~-relative) that replaces it for that agent. Without an index no
-   tension is filed, and with one a tension must name an entry in it (0.3.2).
-
-## Known rules: what the reduce is told you already hold
-
-`known_rules` lists files (absolute, ~-relative, or relative to the project) whose content goes
-to the reduce as ALREADY HELD - a rules file, a lane charter - bounded to a quarter of the
-reduce window with the head kept, so put the rules first in the file. Field measurement: of
-twenty lessons in one promotion pass, eleven restated rules written in such files, which the
-index does not carry. A lesson that only restates one comes back labelled `known`, is counted in
-`sleep.log`, and is KEPT: the tool lists, the mind drops.
 
 ## Routines: a lane's dream, picked up by the lane
 
@@ -175,9 +152,9 @@ session id) never reaches it. Three pieces make a routine's dream its own:
   no key to match a brief on, and two interactive sessions of one agent would hand each other
   their briefs; it never receives a carry-over, whatever the option says. Its compaction re-seed
   matches on the SESSION ID and is untouched.
-- Promotion is still the mind's job, not the routine's. `python -m dreaming.cli list --all`
-  lists every mapped store and every child of `store_root` that holds dreams, with counts, so
-  an interactive checkup can see every lane's dreams without walking directories.
+- `python -m dreaming.cli list --all` lists every mapped store and every child of `store_root`
+  that holds dreams, with their ages, so a checkup can see (and clear) every lane's leftover
+  dreams without walking directories.
 
 ## Engines
 
@@ -192,45 +169,35 @@ Tried in the configured order; the first that answers wins:
   since 0.4.0, because haiku returned empty slices on short scheduled runs). Safe mode disables CLAUDE.md, skills,
   plugins, hooks and MCP inside the nested run on any machine (this plugin included: a nested run
   must never sleep) and keeps the OAuth login (measured 2026-09-22). The prompt goes on stdin.
-- `mechanical` - no model: the brief is built from the last turns, no lessons. Always available.
+- `mechanical` - no model: the brief is built from the last turns. Always available.
 
-Every engine call gets the remaining budget as its timeout, capped by the engine's configured
-timeout, and a stage is skipped when less than thirty seconds remain, so a sleep cannot cross the
-hook's 3600 s ceiling whatever the budget. The default budget is 900 s (it was 2400 until 0.2.0):
-measured full-transcript sleeps cost 223 s on a local 27B and 88 s on a 4090, and a budget that
-let a slow or misconfigured server block an interactive session for forty minutes was the wrong
-default. The brief is written before the first engine call, so running out costs lessons, never
-the resume. Raise `budget_seconds` for a server you know is slow and want to wait for.
+The one engine call gets the remaining budget as its timeout, capped by the engine's configured
+timeout, and is skipped when less than thirty seconds remain, so a sleep cannot cross the hook's
+3600 s ceiling whatever the budget. The brief is written before the call, so a run that dies or
+runs out still re-seeds something.
 
 ## Reading sleep.log
 
 Every fallback is a `degraded:` line. The ones you will see:
 
-- `no engine - mechanical brief`: neither model answered; the brief is mechanical, promote nothing.
-- `map chunk N did not parse` / `engine error`: that slice produced nothing; the others still count.
-- `map chunk N returned no lessons and no state`: the reply parsed, was in the right shape, and was
-  empty. One is a quiet slice. Before 0.5.4 this line also covered a reply the PARSER threw away,
-  and an earlier version of this page read several of them as "the model was not really reading"
-  and suggested a bigger model. That diagnosis is withdrawn: on Windows the `claude` engine's
-  instructions were being cut to their first line (below), so the model never saw the schema.
-- `map chunk N: K lessons in an unexpected shape, all dropped` (or `..., M kept`) and
-  `map chunk N: state in an unexpected shape (list), dropped`: the model answered, in a shape the
-  parser cannot use. On the `claude` engine this was the signature of the Windows truncation fixed
-  in 0.5.4; if you see it on 0.5.4 or later, the model genuinely ignored the schema - check which
-  model answered (the `map` line names it) before blaming the prompt.
-- `newest slice yielded no state (unmapped or empty); brief is mechanical`: the resume state may
-  only come from the newest slice of the day, and that slice gave none, so the brief is built from
-  the last turns rather than from an older slice's articulate but stale state. The plain line
-  `state: copied from slice N of N` is the healthy case: the brief is that slice's state, verbatim.
-- `no index; tensions not filed (N dropped)` / `N tension(s) named entries not in the index; dropped`:
-  a tension must name an entry you hold; the model had invented the entry from the day itself.
-- `map chunk N truncated` / `reduce reply truncated (provider cap)`: the reply hit the token cap;
-  what was salvaged is a prefix, the brief is intact (state comes first in the contract).
-- `reduce input too large for the window; using the union of the map passes`: no cross-slice
-  merge happened; expect near-duplicate lessons.
-- `budget Ns exhausted ...`: the wall-clock budget stopped the run; the dream is complete but shorter.
+- `no engine - mechanical brief`: neither model answered; the brief is mechanical.
+- `slice N of N engine error: ...` / `slice N of N did not parse`: the call produced nothing usable;
+  the brief is mechanical.
+- `slice N of N returned no state`: the reply parsed, was in the right shape, and was empty.
+- `slice N of N: state in an unexpected shape (list), dropped`: the model answered in a shape the
+  parser cannot use. On the `claude` engine before 0.5.4 this was the signature of the Windows
+  truncation of the instructions to their first line; on 0.5.4 or later the model genuinely ignored
+  the schema - check which model answered (the `read` line names it) before blaming the prompt.
+- `slice N of N truncated (provider cap)`: the reply hit the token cap; the state comes first in the
+  contract, so it is usually salvaged whole.
+- `newest slice yielded no state (unread or empty); brief is mechanical`: the newest slice gave no
+  state, so the brief is built from the last turns. The plain line `state: from slice N of N (only
+  the newest slice is read)` is the healthy case: the brief is that slice's state, verbatim.
+- `the state named a system payload as the task; replaced with the last real request`: the model
+  took a task notification or a system reminder for the task; the rest of its state is kept.
+- `budget Ns exhausted before the newest slice; brief is mechanical`: no call was made.
 - `watermark <uuid> not in transcript; extracted everything`: the session was resumed into a new
-  file; the whole transcript was consolidated again.
+  file; the whole transcript was extracted again.
 
 ## Turning it off
 

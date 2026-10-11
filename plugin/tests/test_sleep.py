@@ -358,20 +358,6 @@ class SleepRunTests(unittest.TestCase):
         self.assertEqual((rc, out.strip()), (0, ""))
         self.assertFalse(os.path.exists(os.path.join(self.memory, "dreams")))
 
-    def test_a_sleep_never_reads_the_index(self):
-        """0.6.0: the index fed lesson and tension filtering, and a sleep makes neither. It is not
-        read at all - store present (here) or missing (the case the older test pinned)."""
-        calls = []
-        real = identity.index_text
-        identity.index_text = lambda *a, **kw: calls.append(a) or ""
-        try:
-            hook = {"session_id": "sess-0001", "transcript_path": self.transcript, "cwd": self.project}
-            rc, _ = self._main("sleep", "--engine", "mechanical", "--agent", "Joule", "--hook-json", json.dumps(hook))
-            self.assertEqual(rc, 0)
-            self.assertTrue(os.path.isdir(os.path.join(self.memory, "dreams")), "the sleep must have run")
-        finally:
-            identity.index_text = real
-        self.assertEqual(calls, [])
 
     def test_hook_sleep_uses_the_transcript_agent_name(self):
         # No --agent, no env: the fixture's agent-name record says Joule, and Joule is mapped.
@@ -514,7 +500,7 @@ class ReseedAndNoticeTests(unittest.TestCase):
         self.assertIn("NEWEST MARKER", ctx)
         self.assertIn("## Current Task", ctx)
         self.assertIn(os.path.basename(new["folder"]), ctx)
-        self.assertIn("0 lesson(s), 0 tension(s) staged", ctx)
+        self.assertNotIn("lesson", ctx.lower(), "a dream carries no lessons since 0.5.8, so the re-seed counts none")
         self.assertNotIn("promot", ctx.lower().split("(dreaming re-seed")[1], "the re-seed tail must not ask for promotion")
 
     def test_reseed_is_silent_without_a_dream(self):
@@ -541,7 +527,9 @@ class ReseedAndNoticeTests(unittest.TestCase):
         self._sleep(datetime.datetime(2026, 9, 22, 11, 0))
         found = sl.dreams_awaiting(self.memory)
         self.assertEqual(len(found), 1)
-        self.assertEqual((found[0]["lessons"], found[0]["tensions"], found[0]["stale"]), (0, 0, False))
+        self.assertFalse(found[0]["stale"])
+        self.assertNotIn("lessons", found[0])
+        self.assertNotIn("tensions", found[0])
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cli.main(["--project", self.project, "--home", self.home, "list", "--agent", "Joule"])
